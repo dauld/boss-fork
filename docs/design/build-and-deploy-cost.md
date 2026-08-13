@@ -20,6 +20,14 @@ instance (job 23fa024b) named CI as the long pole, and the
 | deploy after a **core-crate** change | 30+ min | train 12, 09:50→10:34Z (boss-core touched) |
 | cluster converge | ≤10 min tick, image built on the forge host | runner stamp |
 
+Measured again at the end of the day, across 14 trains: **median
+board→merge 35 min** (dominated by the CI `test` job) and **median
+merge→deploy 3 min** (n=5 trains with full timestamps). That refines
+the claim above rather than contradicting it: the deploy is cheap in
+the common case and expensive only when a core crate changed, which
+was 1 train in 14 today. The duplicated build is real but it is not
+what an operator waits on — CI is.
+
 The deploy figure is the interesting one: the same workspace that CI
 just compiled is compiled **again** on the playground host, from
 scratch when a core crate changed, while the operator watches. A
@@ -85,7 +93,10 @@ cheaper win.
 
 ### Q4: Is this worth doing before more protocol work?
 
-The honest case against: deploys are not currently blocking anyone —
+The end-of-day medians sharpen this question considerably: at a
+3-minute median deploy, build-once buys almost nothing on a typical
+train and only pays on the rare core-crate day. The honest case
+against: deploys are not currently blocking anyone —
 the trains land, and 30 minutes of compile costs an operator
 nothing when the loop no longer goes deaf during it (the
 cadence-nonblocking car). The case for: it is the last place where
