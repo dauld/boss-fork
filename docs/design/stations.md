@@ -63,9 +63,6 @@ age` default, visible in the lens header; capability gates at the
 claim CAS and `wip_limit` is advisory-first; the registry lives in
 `boss-jobs` beside the workflow registry.
 
-## Open questions
-
-_None — Q1–Q4 resolved; further questions arise from the build._
 ### Resolved Q1 — Is station membership derived or assigned?
 
 Derived: a station is a predicate over packet state, membership
@@ -102,3 +99,7 @@ append-only versioned posture, migrations in the 11x sequence), not
 a new crate — stations are packet-adjacent data, and the evaluation
 port ("give me this station's queue, ordered") belongs where jobs
 and steps already live.
+
+## Open questions
+
+_None — Q1–Q4 resolved in Decision history; further questions arise from the build._
