@@ -923,11 +923,38 @@ restart_prod_daemons() {
     local stem
     for entry in "${DAEMONS[@]}"; do
         IFS=: read -r stem _ <<<"$entry"
-        if [[ -f "/etc/systemd/system/${stem}.service" ]]; then
-            systemctl enable "${stem}.service" >/dev/null 2>&1 || true
-            systemctl restart "${stem}.service"
-            echo "  restarted ${stem}.service"
+        [[ -f "/etc/systemd/system/${stem}.service" ]] || continue
+        systemctl enable "${stem}.service" >/dev/null 2>&1 || true
+        if [[ "$stem" == "boss-train" ]]; then
+            # NEVER a synchronous restart for the conductor's own
+            # supervisor: this very script is routinely a CHILD of
+            # boss-train.service (the reconcile verb's deploy shells
+            # into it via sudo), and `systemctl restart` here kills
+            # the caller's whole process tree mid-deploy. On the
+            # 2026-08-13 post-cutover night exactly that killed every
+            # 10-minute reconcile at the deploy step — train #7 sat
+            # CI-green and unmerged for ~95 minutes because reconcile
+            # never lived long enough to reach its merge, and the
+            # repeatedly aborted runs left stale build fingerprints
+            # tripping the built-from-different-sources guard on
+            # later deploys. systemd-run schedules the bounce as a
+            # transient timer instead: it fires +15s out, from its
+            # own unit — never from inside boss-train's cgroup — so
+            # the in-flight deploy finishes before its supervisor
+            # bounces. --collect reaps the transient units (success
+            # or failure); if a restart is already scheduled from a
+            # deploy seconds ago, the pending one covers this run too.
+            if systemd-run --collect --on-active=15s \
+                --unit=boss-train-restart \
+                systemctl restart boss-train.service >/dev/null 2>&1; then
+                echo "  scheduled boss-train.service restart (+15s, deferred — deployer may be its child)"
+            else
+                echo "  boss-train.service restart already scheduled (boss-train-restart pending)"
+            fi
+            continue
         fi
+        systemctl restart "${stem}.service"
+        echo "  restarted ${stem}.service"
     done
 }
 

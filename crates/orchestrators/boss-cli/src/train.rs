@@ -415,6 +415,50 @@ pub(crate) fn sweep_settled(boarded_cars: &[Value]) -> bool {
     })
 }
 
+/// Should reconcile attempt the deploy at all? The deploy is the one
+/// reconcile arm that spawns minutes of child processes and ends with
+/// deploy-services.sh bouncing this verb's own supervisor
+/// (boss-train.service) — on the 2026-08-13 post-cutover night an
+/// UNCONDITIONAL deploy every 10-minute firing meant every firing
+/// died there, and train #7 sat CI-green and unmerged for ~95
+/// minutes. So: skip when the box already serves the target main.
+/// The generation key is the deployed HEAD *short* sha
+/// (infra/generation.sh gen_head_key), the target is the remote ref —
+/// a prefix match in either direction IS "this content is live". A
+/// merge this run forces the deploy regardless (main just moved,
+/// whatever the store says), and anything unknowable — no generation
+/// store, an empty key, a tarball's "unversioned" key — deploys: a
+/// wasted deploy costs minutes, a skipped needed one costs the train.
+pub(crate) fn deploy_needed(
+    current_generation: Option<&str>,
+    target_main_sha: &str,
+    merged_this_run: bool,
+) -> bool {
+    if merged_this_run {
+        return true;
+    }
+    let Some(generation) = current_generation else {
+        return true;
+    };
+    let generation = generation.trim();
+    let target = target_main_sha.trim();
+    if generation.is_empty() || target.is_empty() {
+        return true;
+    }
+    !(target.starts_with(generation) || generation.starts_with(target))
+}
+
+/// The generation the box currently serves: the basename of the
+/// `current` symlink in the generation store (infra/generation.sh —
+/// `current -> releases/<short-sha>`). None when the store does not
+/// exist or the link is unreadable, which `deploy_needed` treats as
+/// "cannot tell, deploy".
+fn current_generation() -> Option<String> {
+    let root = env_or("BOSS_GEN_ROOT", "/usr/local/boss");
+    let link = fs::read_link(Path::new(&root).join("current")).ok()?;
+    link.file_name().map(|n| n.to_string_lossy().into_owned())
+}
+
 // The DRY log lines mirror the python conductor's dict/list reprs —
 // the journal is operator surface, and the port keeps its lines.
 
@@ -1016,6 +1060,18 @@ impl Conductor {
             )
             .await?,
         )?;
+        // Two passes, deliberately. The deploy is minutes of child
+        // processes and (via deploy-services.sh) ends with this
+        // verb's own supervisor being bounced — so every merge and
+        // every evidence stamp lands in pass 1, BEFORE any deploy is
+        // attempted in pass 2. On the 2026-08-13 post-cutover night
+        // the deploy ran inline per train and every 10-minute firing
+        // died there: train #7 sat CI-green and unmerged for ~95
+        // minutes because reconcile never survived long enough to
+        // reach its merge. A killed deploy may cost this firing; it
+        // can never again eat a merge.
+        let mut merged_this_run = false;
+        let mut deploy_queue: Vec<String> = Vec::new();
         for t0 in trains {
             let tid = job_id(&t0)?.to_string();
             let mut t = self.get_job(&tid).await?;
@@ -1090,19 +1146,80 @@ impl Conductor {
                     )
                     .await?;
                 }
+                merged_this_run = true;
                 t = self.get_job(&tid).await?;
             }
 
             let merged_step = find_step(&t, "merged", "Merged into main");
             let deployed_step = find_step(&t, "deployed", "Deployed to the playground");
             if step_done(merged_step) && !step_done(deployed_step) {
-                let deployed_step = deployed_step
-                    .ok_or_else(|| anyhow!("deployed step missing on job {}", id8(&tid)))?;
-                self.deploy(&t, deployed_step).await?;
+                deploy_queue.push(tid);
             }
+        }
+
+        // Pass 2 — the deploys, and only the ones actually owed. The
+        // generation store answers "is this content already live"
+        // (the deployed HEAD short sha is the generation key), so a
+        // firing that finds the box current records the evidence and
+        // moves on instead of re-running a deploy whose only effect
+        // is to get itself killed — repeated killed-mid-deploy
+        // attempts are also what left stale build fingerprints
+        // tripping the built-from-different-sources guard.
+        for tid in deploy_queue {
+            let t = self.get_job(&tid).await?;
+            let deployed_step = find_step(&t, "deployed", "Deployed to the playground")
+                .ok_or_else(|| anyhow!("deployed step missing on job {}", id8(&tid)))?;
+            if step_done(Some(deployed_step)) {
+                continue;
+            }
+            // Re-read per train: an earlier queue entry's deploy
+            // flips the generation, and the next train then matches.
+            let generation = current_generation();
+            let target = self.target_main_sha()?;
+            if !deploy_needed(generation.as_deref(), &target, merged_this_run) {
+                let generation = generation.unwrap_or_default();
+                log(format!("generation current ({generation}) — no deploy"));
+                // The deploy's outcome already stands (this deploy —
+                // or a sibling train's — carried main out before its
+                // bookkeeping completed); record that as the step's
+                // evidence so the train can arrive.
+                self.complete_step(
+                    &t,
+                    Some(deployed_step),
+                    &[(
+                        "deployed",
+                        Some(format!(
+                            "main@{generation} already live — generation current, deploy skipped"
+                        )),
+                    )],
+                )
+                .await?;
+                continue;
+            }
+            self.deploy(&t, deployed_step).await?;
         }
         self.sweep_landed_branches().await?;
         Ok(())
+    }
+
+    /// What main points at on the deploy remote — the sha the box
+    /// would be on after a deploy. `ls-remote` so the answer is the
+    /// remote's, not a stale local ref; same remote the deploy pulls.
+    fn target_main_sha(&self) -> Result<String> {
+        let remote = env_or("BOSS_TRAIN_DEPLOY_REMOTE", "origin");
+        let out = sh(&[
+            "git",
+            "-C",
+            &self.cfg.deploy_tree,
+            "ls-remote",
+            &remote,
+            "main",
+        ])?;
+        Ok(stdout_str(&out)
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_string())
     }
 
     /// Reconcile's arrival sweep: delete landed cars' branches from
@@ -1639,7 +1756,7 @@ pub async fn run(phase: Phase, dry: bool, now: DateTime<Utc>) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{deletable_branches, parked_ready, repo_path, sweep_settled};
+    use super::{deletable_branches, deploy_needed, parked_ready, repo_path, sweep_settled};
     use serde_json::json;
     use std::collections::BTreeSet;
 
@@ -1795,6 +1912,57 @@ mod tests {
         assert!(!sweep_settled(&[landed, still_open]));
         // Nothing boarded is trivially settled.
         assert!(sweep_settled(&[]));
+    }
+
+    // -- the deploy-skip decision ------------------------------------------
+    //
+    // The 2026-08-13 post-cutover incident: reconcile deployed
+    // UNCONDITIONALLY every 10-minute firing, and each deploy ended
+    // with deploy-services.sh bouncing boss-train.service — killing
+    // the reconcile verb's own process tree. These pin when a deploy
+    // is actually owed.
+
+    #[test]
+    fn a_current_generation_skips_the_deploy() {
+        // The generation key is the deployed HEAD *short* sha; the
+        // target is the full ref — prefix match IS "this is live".
+        assert!(!deploy_needed(
+            Some("89b4a55"),
+            "89b4a55f3c0d2e1b7a6958c4d3e2f1a0b9c8d7e6",
+            false
+        ));
+        // Same-length keys compare too.
+        assert!(!deploy_needed(Some("89b4a55"), "89b4a55", false));
+    }
+
+    #[test]
+    fn a_stale_generation_deploys() {
+        assert!(deploy_needed(
+            Some("89b4a55"),
+            "deadbeef3c0d2e1b7a6958c4d3e2f1a0b9c8d7e6",
+            false
+        ));
+    }
+
+    #[test]
+    fn a_merge_this_run_deploys_whatever_the_store_says() {
+        assert!(deploy_needed(
+            Some("89b4a55"),
+            "89b4a55f3c0d2e1b7a6958c4d3e2f1a0b9c8d7e6",
+            true
+        ));
+    }
+
+    #[test]
+    fn an_unknowable_generation_deploys() {
+        // No store, empty key, tarball "unversioned" key, empty
+        // target: none of these prove currency, and a wasted deploy
+        // costs minutes while a skipped needed one costs the train.
+        let main = "89b4a55f3c0d2e1b7a6958c4d3e2f1a0b9c8d7e6";
+        assert!(deploy_needed(None, main, false));
+        assert!(deploy_needed(Some(""), main, false));
+        assert!(deploy_needed(Some("unversioned"), main, false));
+        assert!(deploy_needed(Some("89b4a55"), "", false));
     }
 
     #[test]
