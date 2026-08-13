@@ -36,6 +36,27 @@ looking at a page; one by an agent verifying something else.
 - **Unacknowledged** — terminal reached, the party who cares never
   learns. (David's ruling of 2026-08-13 makes notification
   mandatory, which closes this one by protocol.)
+- **Unsent** — the packet never enters, because the sender stopped
+  believing it would move. David, 2026-08-13, after being shown 16
+  untriaged items: *"I have hesitated to add more feedback"*, and
+  then: *"it shows the importance of keeping the network flowing and
+  transparent to the actors."*
+
+**Unsent is the worst mode and the only one no census can see.** The
+other five leave a record — a row on the wrong fabric, a stalled
+step, an orphaned packet, a dangling edge. An unsent packet leaves
+nothing at all, so the instrument that finds it is not a query but a
+person's confidence, and the only way to measure it is to notice that
+signal volume fell while the system reported itself healthy.
+
+This is why flow and transparency are load-bearing rather than
+polish. A queue that visibly moves recruits its own senders; a queue
+that silently absorbs teaches people to stop sending, and an
+algedonic system whose pain signals have been trained out of it
+reports perfect health right up until it fails. Beer's whole point is
+that the signal must reach the level that can act — and a sender who
+has learned not to bother has severed that path more completely than
+any dropped packet.
 
 ## What makes them detectable now
 
@@ -61,6 +82,12 @@ it is the one stations make checkable. A census can compute both
 without new state.
 
 ### Q2: What does the network do when it finds loss?
+
+(Note: unsent loss is out of this question's reach — no raiser can
+fire on a packet that does not exist. Its countermeasures are the
+ones already ratified: closure on arrival, notification of the filer,
+and the watchlist. Their effectiveness is measurable only as
+sustained signal volume.)
 
 Candidates: (a) report only — a census lens an operator reads; (b)
 raise — an algedonic signal that files a job when a packet is
