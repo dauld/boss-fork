@@ -1380,6 +1380,16 @@ impl Forge for ForgejoForge {
             return Ok(false);
         }
         let body = resp.text().await?;
+        // Forgejo answers a DELETE of an absent branch with 500 and
+        // `object does not exist [id: refs/heads/<b>]`, not 404 —
+        // observed 2026-08-13 against branches removed out of band,
+        // where it failed every reconcile AFTER the merge and deploy
+        // had already succeeded, so the run reported rc=1 and re-filed
+        // its arrival report each tick. Already-gone is the sweep's
+        // success condition whatever status dresses it up.
+        if !status.is_success() && body.contains("object does not exist") {
+            return Ok(false);
+        }
         if !status.is_success() {
             bail!(
                 "forge DELETE /repos/{}/branches/{branch}: HTTP {status}: {}",
@@ -1843,7 +1853,17 @@ impl Conductor {
                 self.deploy(&t, deployed_step).await?;
             }
         }
-        self.sweep_landed_branches().await?;
+        // Housekeeping must not fail a run whose real work succeeded.
+        // The sweep runs last, after merges, deploys and evidence are
+        // recorded; on 2026-08-13 a single un-deletable branch made
+        // every reconcile report rc=1 and re-file its arrival report,
+        // which reads as "the conductor is broken" when the trains had
+        // in fact landed. Journal the failure, keep the verb green.
+        if let Err(e) = self.sweep_landed_branches().await {
+            log(format!(
+                "branch sweep failed (housekeeping, run stands): {e}"
+            ));
+        }
         Ok(())
     }
 
