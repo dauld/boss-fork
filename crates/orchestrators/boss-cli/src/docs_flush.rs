@@ -169,7 +169,8 @@ fn remove_decisions_from_open(
     bool,
 )> {
     let mut titles = std::collections::HashMap::new();
-    let mut bodies: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut bodies: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
 
     // Determine which anchors use the explicit ### Q<n>: format vs
     // the numbered-list fallback.
@@ -844,7 +845,10 @@ Other content.
             "carried body is not labelled:\n{out}"
         );
         // The untouched question stays in Open questions.
-        assert!(out.contains("### Q2: Untouched?"), "unresolved question lost:\n{out}");
+        assert!(
+            out.contains("### Q2: Untouched?"),
+            "unresolved question lost:\n{out}"
+        );
     }
 
     #[test]
