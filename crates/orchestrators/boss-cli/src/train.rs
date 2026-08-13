@@ -652,6 +652,31 @@ pub(crate) fn arrival_summary(report: &Value) -> String {
     format!("{n} cars; generation {generation}; total {total}s")
 }
 
+/// Is a deploy actually needed? `current_key` is the generation
+/// store's live key — the 8-char short-sha release dirname
+/// (infra/generation.sh); `remote_main` is the FULL 40-char sha
+/// `git ls-remote` answers. Same generation iff the full sha starts
+/// with the short key — exactly that direction (the live incident:
+/// this pair failing the comparison re-ran a full no-op deploy every
+/// 10-minute reconcile). Missing evidence on either side deploys —
+/// the deploy path surfaces its own errors, and a skip must never
+/// rest on absence.
+pub(crate) fn deploy_needed(current_key: &str, remote_main: &str) -> bool {
+    current_key.is_empty() || remote_main.is_empty() || !remote_main.starts_with(current_key)
+}
+
+/// The live generation's key — the basename of the store's `current`
+/// symlink. The store layout is owned by infra/generation.sh (the
+/// one definition); this reads the same BOSS_GEN_ROOT contract.
+/// Empty when the box has no generation store yet.
+fn current_generation_key() -> String {
+    let root = env_or("BOSS_GEN_ROOT", "/usr/local/boss");
+    fs::read_link(Path::new(&root).join("current"))
+        .ok()
+        .and_then(|t| t.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .unwrap_or_default()
+}
+
 /// The newest `completed_at` stamp across a train's steps — when
 /// progress last provably happened. None when no step carries a
 /// parseable stamp.
@@ -1275,6 +1300,38 @@ impl Conductor {
     async fn deploy(&self, train: &Value, deployed_step: &Value) -> Result<()> {
         let tree = self.cfg.deploy_tree.clone();
         let tree_path = Path::new(&tree);
+        // Deploy only when needed. The skip decision comes before the
+        // busy check — a no-op deploy has no business caring about
+        // the tree — and reads two facts: the generation store's live
+        // key and what `main` is on the remote. Matching pair: record
+        // the evidence on the step and journal the skip; the services
+        // stay unbounced.
+        let pull_remote = env_or("BOSS_TRAIN_DEPLOY_REMOTE", "origin");
+        let remote_out = sh_unchecked(&["git", "-C", &tree, "ls-remote", &pull_remote, "main"])?;
+        let remote_main = stdout_str(&remote_out)
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        let current = current_generation_key();
+        if !deploy_needed(&current, &remote_main) {
+            let short: String = remote_main.chars().take(12).collect();
+            log(format!(
+                "deploy skipped — generation {current} already serves main@{short}"
+            ));
+            self.complete_step(
+                train,
+                Some(deployed_step),
+                &[(
+                    "deployed",
+                    Some(format!(
+                        "already live: generation {current} serves main@{short}; no deploy run"
+                    )),
+                )],
+            )
+            .await?;
+            return Ok(());
+        }
         let dirty_out = sh_unchecked(&["git", "-C", &tree, "status", "--porcelain"])?;
         let dirty = !stdout_str(&dirty_out).trim().is_empty();
         let branch_out = sh(&["git", "-C", &tree, "rev-parse", "--abbrev-ref", "HEAD"])?;
@@ -1310,7 +1367,6 @@ impl Conductor {
         }
         // Under the forge protocol the playground converges on forge
         // main; GitHub is the mirror, never the source (27ab7680).
-        let pull_remote = env_or("BOSS_TRAIN_DEPLOY_REMOTE", "origin");
         sh(&["git", "-C", &tree, "pull", &pull_remote, "main"])?;
         let main_ref_out = sh(&["git", "-C", &tree, "rev-parse", "--short", "HEAD"])?;
         let main_ref = stdout_str(&main_ref_out).trim().to_string();
@@ -2219,9 +2275,10 @@ pub async fn run(phase: Phase, dry: bool, now: DateTime<Utc>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        arrival_report, arrival_summary, deletable_branches, local_jobs_problem, overlay_metadata,
-        parked_ready, releasable_cars, repo_path, resolve_train, skip_reason_branch_missing,
-        skip_reason_conflict, stall_age_hours, sweep_settled, train_branch_to_delete,
+        arrival_report, arrival_summary, deletable_branches, deploy_needed, local_jobs_problem,
+        overlay_metadata, parked_ready, releasable_cars, repo_path, resolve_train,
+        skip_reason_branch_missing, skip_reason_conflict, stall_age_hours, sweep_settled,
+        train_branch_to_delete,
     };
     use chrono::{DateTime, Utc};
     use serde_json::{Value, json};
@@ -2776,6 +2833,38 @@ mod tests {
             json!({"id": "aaaa1111-y", "steps": []}),
         ];
         assert!(resolve_train(&twins, "aaaa1111").is_err(), "ambiguous");
+    }
+
+    // -- the deploy-needed decision ----------------------------------------
+    //
+    // Live incident: every 10-minute reconcile re-ran a full no-op
+    // deploy — generation unchanged, services bounced anyway. The
+    // store's `current` key is the 8-char release dirname; ls-remote
+    // answers the FULL 40-char sha. full.starts_with(short) is the
+    // match — that exact direction, pinned here with the real shapes.
+
+    #[test]
+    fn a_generation_already_serving_remote_main_skips_the_deploy() {
+        let full = "c0020201aa5f3d9e8b7c6d5e4f3a2b1c0d9e8f7a";
+        assert!(
+            !deploy_needed("c0020201", full),
+            "8-char store key vs 40-char remote sha must read as up to date"
+        );
+    }
+
+    #[test]
+    fn every_other_pair_deploys() {
+        let full = "deadbeefaa5f3d9e8b7c6d5e4f3a2b1c0d9e8f7a";
+        assert!(deploy_needed("c0020201", full), "different generations");
+        // The reversed half-match must never read as up to date.
+        assert!(deploy_needed(
+            "c0020201aa5f3d9e8b7c6d5e4f3a2b1c0d9e8f7a",
+            "c0020201"
+        ));
+        // Missing evidence on either side deploys — the deploy path
+        // surfaces its own errors; a skip must never rest on absence.
+        assert!(deploy_needed("", full));
+        assert!(deploy_needed("c0020201", ""));
     }
 
     #[test]
