@@ -53,9 +53,20 @@ every page's hand-rolled fetch+filter are station predicates trapped
 in code — the simplification this doc unlocks is moving them into
 the registry and rendering all of them through one lens machinery.
 
+## Decision history
+
+**Q1–Q4 all resolved 2026-08-13 (David): "I agree with all 4
+question proposals."** Membership is derived (stations are
+predicates), motion is evented (router emits arrival/departure
+markers); discipline is data on the station row, `priority, then
+age` default, visible in the lens header; capability gates at the
+claim CAS and `wip_limit` is advisory-first; the registry lives in
+`boss-jobs` beside the workflow registry.
+
 ## Open questions
 
-### Q1: Is station membership derived or assigned?
+_None — Q1–Q4 resolved; further questions arise from the build._
+### Resolved Q1 — Is station membership derived or assigned?
 
 Derived: a station is a predicate over packet state, membership
 recomputed from the log (Hickey-clean, no new mutable field; motion
@@ -66,7 +77,7 @@ first-class, but a second source of truth appears). Proposed:
 the router emits arrival/departure marker events so the map and flow
 metrics read motion without a mutable location field.
 
-### Q2: What orders a station's queue?
+### Resolved Q2 — What orders a station's queue?
 
 Priority disciplines as data on the station row: by packet priority,
 by age, by due date, or a declared composite. Proposed: a small
@@ -74,7 +85,7 @@ by age, by due date, or a declared composite. Proposed: a small
 default, and the discipline visible in the lens header — an operator
 should never wonder why the queue is in this order.
 
-### Q3: How are bandwidth and capability declared and enforced?
+### Resolved Q3 — How are bandwidth and capability declared and enforced?
 
 Capability: the constraint predicate (skills/authority from the
 Class registry) gates who may claim from the station — enforced at
@@ -84,7 +95,7 @@ giving the algedonic layer a signal when a queue exceeds it)?
 Proposed: optional `wip_limit` per station, advisory first (a lens
 warning + telemetry), enforcing later if the data says it matters.
 
-### Q4: Where does the station registry live?
+### Resolved Q4 — Where does the station registry live?
 
 Proposed: rows in `boss-jobs` beside the workflow registry (same
 append-only versioned posture, migrations in the 11x sequence), not
