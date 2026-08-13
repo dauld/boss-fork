@@ -1,8 +1,8 @@
 # The three layers
 
-**Status**: in-review — this is intended as the living reading frame
-everything else is measured against, and becomes `living` once its
-two open questions are settled.
+**Status**: living — the reading frame everything else is measured
+against. Both opening questions were settled by David on the day it
+was written; see Decision history.
 **Origin**: David, 2026-08-13 (verbatim): *"The network is the
 substrate, the fat protocols dictate the current operating model, the
 actors run it."*
@@ -105,26 +105,48 @@ two framings disagree in a design argument, **the network framing
 wins**, because it is the one that survives changing the operating
 model.
 
+## Decision history
+
+**Q1 — the older frame documents: keep, but curation is a standing
+obligation. Resolved 2026-08-13 (David):** *"Older docs can be kept
+for now, but we need to remember that keeping the repo documentation
+well-scoped and aligned will increase the likelihood it is read.
+Everyone claims to love history, but we need it edited and curated
+when it gets too big."*
+
+So `human-powered-state-machine.md` and its peers stay, retitled as
+lenses rather than foundations. The principle behind the ruling is
+the load-bearing part and applies to every doc in this repo: **the
+corpus is a working surface, not an archive.** Documentation is read
+in proportion to how well-scoped and aligned it is, which makes
+sprawl a correctness problem rather than an aesthetic one — an
+unread invariant governs nothing. History is kept, but edited: when
+the corpus grows past the point where a newcomer can find the
+current truth, curating it is the work, not a distraction from it.
+
+**Q2 — policy is part of the protocol. Resolved 2026-08-13
+(David):** *"policy is definitely part of the protocol. I only keep
+policy separate because actor governance is very top of mind for
+people, but I think policy is certainly encoded as data, and I don't
+think it needs to be treated differently than protocol in general
+except we will definitely need tools for managing the policy aspects
+of protocol specifically."*
+
+Policy is **not a fourth layer**. Who may complete a step is part of
+what the protocol *means*, exactly as much as what evidence the step
+requires — and it is already data (`entitlements` on the
+WorkflowSpec, rows in the policy registry). Its apparent separateness
+is a fact about human attention, not about the architecture: actor
+governance is what people ask about first, so it gets its own
+vocabulary and its own page.
+
+The consequence is a **tooling** obligation rather than a structural
+one: policy needs first-class surfaces for authoring, reviewing and
+auditing the policy *aspect* of a protocol — who can act, on what,
+under which scope — without that aspect being modelled as a separate
+kind of thing underneath. Enforcement stays where it is; the
+authoring story is what has to converge.
+
 ## Open questions
 
-### Q1: What happens to the older frame documents?
-
-`human-powered-state-machine.md` is still accurate as an execution
-lens and is referenced from CLAUDE.md as the reading frame. Options:
-retitle it explicitly as a lens and keep it; fold its still-load-
-bearing invariants into this doc and delete it; or leave both and
-accept two front doors.
-
-Proposed: **retitle and keep**, with a pointer here at the top. Its
-invariants (executors as CPUs, no bespoke code paths for new work
-types) are the ones most often cited in review, and moving them would
-break every reference for a naming improvement.
-
-### Q2: How far does "fat protocols" go — should policy be protocol data too?
-
-Today policy is its own subsystem with its own rules. Under this
-framing, an entitlement is arguably part of what a protocol *means*
-(who may complete this step is as protocol-shaped as what evidence it
-requires), and `entitlements` already exists on the WorkflowSpec.
-Whether policy collapses into protocols or stays a peer is a real
-architectural question this doc should not answer by implication.
+_None — Q1 and Q2 resolved above; further questions arise from the convergence pass and the policy tooling work._
