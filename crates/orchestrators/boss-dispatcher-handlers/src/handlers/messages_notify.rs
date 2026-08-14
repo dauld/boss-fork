@@ -114,8 +114,23 @@ impl Handler for MessagesNotify {
 
         // With an assignee, there is nothing to resolve — that IS the
         // recipient. Only the role path needs a lookup.
-        let (recipient, waiting_on) = match (&recipient_id, role) {
-            (Some(id), _) => (id.clone(), format!("assigned to {id}")),
+        //
+        // The two paths also differ in KIND, and that is the whole
+        // point of the taxonomy (David, 2026-08-14: "let's make
+        // assignment-to-a-person a direct"). An ASSIGNEE means somebody
+        // put this step in front of you specifically, which is what
+        // `direct` means and what the inbox's default "needs you"
+        // filter shows. The role fallback means the machine could not
+        // find a person and picked the on-call member of a role, which
+        // is a `signal` — true, useful, and not addressed to anyone.
+        //
+        // Measured why it matters: the admin's inbox held 1,980 unread
+        // signals against 3 unread directs, so anything arriving as a
+        // signal is invisible by default. The first `approval` packets
+        // were assigned to a person and still landed as signals, which
+        // meant a question asked of him did not appear where he looks.
+        let (recipient, waiting_on, kind) = match (&recipient_id, role) {
+            (Some(id), _) => (id.clone(), format!("assigned to {id}"), "direct"),
             (None, Some(r)) => {
                 // Resolve the role to its active members; notify the
                 // deterministic on-call member (lowest id), mirroring
@@ -149,7 +164,11 @@ impl Handler for MessagesNotify {
                 let Some(first) = emps.first() else {
                     return Ok(());
                 };
-                (first.id.clone(), format!("waiting on the {r} team"))
+                (
+                    first.id.clone(),
+                    format!("waiting on the {r} team"),
+                    "signal",
+                )
             }
             (None, None) => return Ok(()),
         };
@@ -196,7 +215,7 @@ impl Handler for MessagesNotify {
             "recipient_id": recipient,
             "subject": subject,
             "body": body,
-            "kind": "signal",
+            "kind": kind,
             // Link to the STEP, not the Job. The notification exists
             // because one specific step became ready; landing on the
             // Job leaves the reader to find it again among the others,
