@@ -62,7 +62,16 @@ set -euo pipefail
 # `maintenance-sweep`'s own protocol row. The number to watch is not
 # this total but the 22 `step.done.*` rules underneath it, which ARE
 # routing and are owed back to the protocol.
-BASELINE=45
+#
+# 45 -> 46 (2026-08-14, migration 128). `expire-signals-on-job-closed`.
+# A CROSS-PROTOCOL REACTOR, which is the exemption above and not the
+# routing this ratchet exists to stop: no single Workflow definition
+# can express "when a job of ANY kind closes, retire the inbox
+# messages about it", because those messages are not part of the
+# job's protocol — they belong to a different domain that merely
+# observed it. Declaring it inside every Workflow would be the
+# duplication, not the discipline.
+BASELINE=46
 RULES_FILE="infra/dispatcher/rules.toml"
 
 count=$(grep -c '^\[\[rule\]\]' "$RULES_FILE")
