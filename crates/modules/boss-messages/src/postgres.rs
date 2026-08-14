@@ -208,6 +208,56 @@ impl MessageRepository for PgMessages {
         Ok(rows.into_iter().map(|r| r.into_message()).collect())
     }
 
+    async fn expire_signals_under(
+        &self,
+        path_prefix: &str,
+        now: DateTime<Utc>,
+        stamp: &boss_core::publisher::EventStamp,
+    ) -> Result<u32, MessageError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| MessageError::Storage(e.to_string()))?;
+
+        // RETURNING id, so the audit events name exactly the rows that
+        // moved. A bulk UPDATE plus one summary event would leave the
+        // rebuilder unable to reproduce the projection — it would know
+        // that N messages were archived but not which, and the five-
+        // property protocol's determinism clause is the thing that
+        // breaks. Per-job this is a handful of rows.
+        //
+        // `LIKE prefix || '%'` matches both shapes the senders use:
+        // `/jobs/{id}` from job-level notifications and
+        // `/jobs/{id}/steps/{step}` from the step notifier.
+        let ids: Vec<(String,)> = sqlx::query_as(
+            "UPDATE messages SET kind = 'archived' \
+             WHERE entity_path LIKE $1 || '%' \
+               AND kind = 'signal' \
+               AND read_at IS NULL \
+             RETURNING id",
+        )
+        .bind(path_prefix)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| MessageError::Storage(e.to_string()))?;
+
+        for (id,) in &ids {
+            let event = stamp.event(
+                crate::events::MESSAGE_ARCHIVED,
+                serde_json::json!({ "id": id, "archived_at": now, "reason": "entity-past-relevancy" }),
+            );
+            boss_events::outbox::record_event_in_tx(&mut tx, &event)
+                .await
+                .map_err(|e| MessageError::Storage(e.to_string()))?;
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| MessageError::Storage(e.to_string()))?;
+        Ok(ids.len() as u32)
+    }
+
     async fn archive_message(
         &self,
         id: &str,
