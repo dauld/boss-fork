@@ -91,7 +91,10 @@ async fn active_rules_excludes_retired_ones() {
 async fn claim_is_exactly_once_against_the_primary_key() {
     let db = TestDb::new().await;
     let repo = PgCadence::new(db.pool.clone());
-    let f = firing("cadence:board:2026-08-14T12:00Z", "train-board-on-dock-depth");
+    let f = firing(
+        "cadence:board:2026-08-14T12:00Z",
+        "train-board-on-dock-depth",
+    );
 
     assert!(repo.claim_firing(&f).await.unwrap());
     assert!(
@@ -107,7 +110,10 @@ async fn claim_records_the_callers_clock_not_the_database_wallclock() {
     let repo = PgCadence::new(db.pool.clone());
     // A sim-dated tick, far from real time.
     let simulated = Utc.with_ymd_and_hms(2031, 1, 2, 3, 4, 0).unwrap();
-    let mut f = firing("cadence:board:2031-01-02T03:04Z", "train-board-on-dock-depth");
+    let mut f = firing(
+        "cadence:board:2031-01-02T03:04Z",
+        "train-board-on-dock-depth",
+    );
     f.fired_at = simulated;
     repo.claim_firing(&f).await.unwrap();
 
@@ -127,7 +133,10 @@ async fn claim_records_the_callers_clock_not_the_database_wallclock() {
 async fn outcome_merges_and_preserves_why_the_rule_fired() {
     let db = TestDb::new().await;
     let repo = PgCadence::new(db.pool.clone());
-    let f = firing("cadence:board:2026-08-14T12:00Z", "train-board-on-dock-depth");
+    let f = firing(
+        "cadence:board:2026-08-14T12:00Z",
+        "train-board-on-dock-depth",
+    );
     repo.claim_firing(&f).await.unwrap();
     repo.record_outcome(&f.firing_id, 0, 37).await.unwrap();
 

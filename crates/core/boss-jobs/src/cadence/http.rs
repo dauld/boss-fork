@@ -109,7 +109,11 @@ async fn record_outcome(
     if !is_trusted(&user) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    match state.repo.record_outcome(&id, body.rc, body.runtime_secs).await {
+    match state
+        .repo
+        .record_outcome(&id, body.rc, body.runtime_secs)
+        .await
+    {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => err_response(e),
     }
