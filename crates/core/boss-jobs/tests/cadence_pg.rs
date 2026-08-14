@@ -56,13 +56,15 @@ async fn seeded_rules_serve_the_thresholds_the_schema_declares() {
     );
 
     // The number from the scar. Migration 123 reconciled the seed to
-    // the value the running conductor already enforced.
+    // the value the running conductor already enforced; 131 then raised
+    // it to 12 so one CI run carries more work (David: "load up trains
+    // as fast as we can and have CI be the blocker").
     let depth = by_name("train-board-on-dock-depth");
     assert_eq!(depth.verb, "board");
     assert_eq!(depth.basis, "queue-depth");
     assert_eq!(
         depth.min_dock_depth,
-        Some(8),
+        Some(12),
         "boarding threshold drifted from the schema — this is the \
          2026-08-13 split-brain, and it made the operator's answer wrong"
     );
