@@ -36,6 +36,11 @@
 .step-answer-question .aq-asker {
   font-size: 12px; color: var(--text-dim, #78716c); white-space: nowrap;
 }
+.step-answer-question .aq-fullpage {
+  font-size: 12px; color: var(--accent, #2563eb); text-decoration: none;
+  white-space: nowrap; align-self: center;
+}
+.step-answer-question .aq-fullpage:hover { text-decoration: underline; }
 
 /* Two panes. Same 1fr/1fr split with a reading floor the review
    surface uses — the answer box is where the work happens, so it gets
@@ -325,10 +330,22 @@
       if (error) body.appendChild(h('div', { className: 'aq-error' }, error));
 
       const asker = meta('asked_by');
+      // Escape hatch to the full-viewport step route, the same one the
+      // design review offers. This surface is two panes at 1100px and
+      // one below it, and inside the job page it renders in a column
+      // beside the job chrome — so the evidence and the answer box both
+      // end up narrow, which is the state David described as not being
+      // able to see the UX. The route drops the sidebar entirely.
+      const fullPage = h(
+        'a',
+        { className: 'aq-fullpage', href: `/jobs/${jobId}/steps/${step.id}` },
+        'Open full page ↗',
+      );
       body.appendChild(
         h('div', { className: 'aq-head' },
           h('h3', {}, (job && job.title) || 'Answer a question'),
           asker ? h('span', { className: 'aq-asker' }, `asked by ${asker}`) : null,
+          isDone ? null : fullPage,
         ),
       );
 
