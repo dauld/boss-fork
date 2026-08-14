@@ -8,19 +8,30 @@
 # measures the gap on a cadence turns "is the public mirror current?"
 # into a query instead of a thing somebody remembers to wonder about.
 #
-# This script MEASURES AND REPORTS. It never pushes. The push is a
-# human decision because the target is public and publishing cannot be
-# taken back — a force-push removes the commit but not what was
-# already cloned, indexed, or mirrored.
+# This script MEASURES AND REPORTS. It never pushes and never opens a
+# PR. Publication is a human decision because the target is public and
+# cannot be taken back — a force-push removes the commit but not what
+# was already cloned, indexed, or mirrored.
+#
+# THE MIRROR IS FED BY PULL REQUEST, NOT BY PUSHING main (David,
+# 2026-08-14: "We should be opening a PR"). That gives two independent
+# gates: the protocol's sign-off before the branch is pushed, and the
+# merge on GitHub afterwards. Note that on a public repo the PR itself
+# is the publication event — a PR diff is world-readable the moment it
+# opens — so the sign-off still sits BEFORE the push, not before the
+# merge.
 #
 # Usage:  infra/prep-github-publish.sh [--json]
 # Exit:   0 = safe to publish (or nothing to publish)
-#         1 = a blocking finding; do not push
+#         1 = a blocking finding; do not publish
 set -uo pipefail
 
 REMOTE="${GITHUB_REMOTE:-origin}"
 BRANCH="${GITHUB_BRANCH:-main}"
 SOURCE="${SOURCE_REF:-gcp/forge-main}"
+# Dated so each day's sync is its own reviewable PR rather than a
+# moving branch whose diff changes under the reviewer.
+PR_BRANCH="${PR_BRANCH:-mirror/$(date -u +%Y-%m-%d)}"
 JSON=0
 [ "${1:-}" = "--json" ] && JSON=1
 
@@ -31,6 +42,11 @@ say "prep-github-publish: $SOURCE -> $REMOTE/$BRANCH"
 
 git fetch -q "$REMOTE" "$BRANCH" 2>/dev/null
 TARGET="$REMOTE/$BRANCH"
+# owner/repo for `gh pr create --repo`, derived from the remote rather
+# than hardcoded so a fork or a renamed repo does not print a command
+# that quietly targets the wrong place.
+SLUG=$(git remote get-url "$REMOTE" 2>/dev/null \
+  | sed -E 's#^git@[^:]+:##; s#^https?://[^/]+/##; s#\.git$##')
 
 # ---------------------------------------------------------------------
 # 1. DRIFT — what is on the source ref that the public mirror lacks.
@@ -104,6 +120,11 @@ if [ -n "$BLOCKING" ]; then
 fi
 
 say ""
-say "  safe to publish. The push is yours to run:"
-say "      git push $REMOTE $SOURCE:$BRANCH"
+say "  safe to publish. Opening the PR is yours to run:"
+say "      git push $REMOTE $SOURCE:refs/heads/$PR_BRANCH"
+say "      gh pr create --repo $(printf '%s' "$SLUG") --base $BRANCH --head $PR_BRANCH \\"
+say "        --title \"Mirror sync: $AHEAD commits from the forge\" \\"
+say "        --body \"Sync of the internal forge to the public mirror. \\"
+say "                $AHEAD commits, $FILES files. Secrets gate: $SECRETS. \\"
+say "                $SENS_COUNT newly-public file(s) touching runbooks/infra.\""
 exit 0
