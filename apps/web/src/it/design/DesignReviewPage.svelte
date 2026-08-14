@@ -51,9 +51,18 @@
   /// Where a review Job should open. The focused step route renders
   /// outside AppShell — chrome bar on top, the whole panel below it
   /// for the document.
+  ///
+  /// `from` is what Back returns to. Without it the step surface fell
+  /// back to the job page — the one place the reviewer was
+  /// deliberately not sent — which put them a queue further from this
+  /// list rather than back on it (David, feedback 40fe7291, filed
+  /// while working the queue). The fallback route gets it too: it is
+  /// the job page, and Back from there should still come home.
+  const BACK_HERE = `from=${encodeURIComponent('/system/design')}&from_label=${encodeURIComponent('Design Review')}`;
+
   function reviewHref(job: OpenReviewJob): string {
     return job.reviewStepId
-      ? `/jobs/${job.id}/steps/${job.reviewStepId}`
+      ? `/jobs/${job.id}/steps/${job.reviewStepId}?${BACK_HERE}`
       : `/service/${job.id}`;
   }
 
