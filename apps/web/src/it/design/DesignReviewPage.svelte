@@ -15,7 +15,6 @@
   // continue to use the existing /api/design endpoints unchanged.
   import PageHeader from '@boss/web-kit/ui/PageHeader.svelte';
   import Section from '@boss/web-kit/ui/Section.svelte';
-  import Link from '@boss/web-kit/ui/Link.svelte';
   import { navigate } from '../../router';
 
   type DesignDoc = {
@@ -38,11 +37,10 @@
     /// The `review-design` step, when the Job has materialized one.
     /// Reading a design doc is the whole point of this Job, and the
     /// job page renders the doc in a panel beside a sidebar, a job
-    /// header and a step list — so the link below goes straight to
-    /// the full-page step surface instead. Optional because a Job
-    /// caught mid-materialization has no steps yet; the link falls
-    /// back to the job page rather than 404ing on a step id we made
-    /// up.
+    /// header and a step list — so the Review control goes straight
+    /// to the full-page step surface instead. Optional because a Job
+    /// caught mid-materialization has no steps yet; it falls back to
+    /// the job page rather than 404ing on a step id we made up.
     reviewStepId?: string;
   };
 
@@ -154,7 +152,21 @@
     }
   }
 
+  /// One action, one destination: the review surface. Whether a review
+  /// Job already exists is an implementation detail, and surfacing it
+  /// as the difference between a link and a button made the Review
+  /// column read as a status field that sometimes happened to be
+  /// clickable (David, 2026-08-14: "that link should just consistently
+  /// launch the review UX"). Creating the Job when there isn't one is
+  /// a step on the way, not a different outcome.
   async function openReview(doc: DesignDoc): Promise<void> {
+    // Already under review — go straight in. Posting again would open
+    // a second Job for the same doc.
+    const existing = openReviewsByPath[doc.path];
+    if (existing) {
+      navigate(reviewHref(existing));
+      return;
+    }
     const body = {
       kind: 'design-doc-review',
       // Identity-first Subject: the doc path IS the subject id. The
@@ -185,6 +197,7 @@
         body: JSON.stringify(body),
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
+      const created: { id?: string } = await resp.json().catch(() => ({}));
       // doc_path is stamped at materialization from the Job's subject
       // (the Workflow's metadata_defaults template `{subject.id}`) — no
       // follow-up PUT. The old fill-in write lost read-overlay-write
@@ -199,7 +212,17 @@
       // a doc in-app felt cramped. If the Job has not materialized
       // its steps yet, reviewHref falls back to the job page.
       const opened = openReviewsByPath[doc.path];
-      if (opened) navigate(reviewHref(opened));
+      if (opened) {
+        navigate(reviewHref(opened));
+        return;
+      }
+      // The reload did not see the new Job yet (steps materialize
+      // asynchronously, and the docs list is a separate read). Use the
+      // id the POST just returned rather than leaving the operator on
+      // the table wondering whether the click worked — a click that
+      // creates a Job and goes nowhere is the inconsistency this
+      // function exists to remove.
+      if (created.id) navigate(`/service/${created.id}`);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }
@@ -287,7 +310,7 @@
         <code>### Qn:</code> headings (status → reopened).
       </p>
     {:else}
-      {@render docTable(reviewing, 'Open review Job')}
+      {@render docTable(reviewing, 'Start review')}
     {/if}
   </Section>
 
@@ -321,14 +344,19 @@
           <td>{doc.pending_count}</td>
           <td class="design-when">{relTime(doc.last_modified)}</td>
           <td>
+            <!-- One affordance, one destination. This column used to
+                 fork: a doc with a Job rendered a text link labelled
+                 "In review — open", and one without rendered a button
+                 — so the same column carried what looked like a status
+                 in some rows and an action in others, and only one of
+                 them reliably navigated. Both go to the review surface
+                 now; the Job's state is reported below the control
+                 instead of impersonating it. -->
+            <button class="wb-btn" type="button" onclick={() => openReview(doc)}>
+              {review ? 'Review' : buttonLabel}
+            </button>
             {#if review}
-              <Link to={reviewHref(review)}>
-                In review — {review.status}
-              </Link>
-            {:else}
-              <button class="wb-btn" type="button" onclick={() => openReview(doc)}>
-                {buttonLabel}
-              </button>
+              <div class="design-when">Job {review.status}</div>
             {/if}
           </td>
         </tr>
