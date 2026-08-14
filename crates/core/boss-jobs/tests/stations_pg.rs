@@ -1,5 +1,5 @@
 //! Postgres-backed coverage for the station registry
-//! (116-stations.sql, 118-watchlist-station.sql):
+//! (116-stations.sql, 118-watchlist-station.sql, 124-repair-station.sql):
 //!
 //! - the platform seed ships the SDLC batch stations and the filer's
 //!   watchlist, active, with predicates the evaluator can actually
@@ -56,10 +56,29 @@ async fn platform_seed_ships_the_sdlc_batch_stations() {
     let names: Vec<&str> = active.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(
         names,
-        vec!["design-review", "loading-dock", "my-watchlist"],
+        vec!["design-review", "loading-dock", "my-watchlist", "repair"],
         "the platform SDLC batch stations seed active, plus the one \
          per-actor row (per-employee stations stay tenant data; \
          `my-watchlist` needs no roster because @me binds at read time)"
+    );
+
+    // The repair queue (migration 124, David's bb86d687): red trains,
+    // held on a fact that lives on the STEP. Asserting the clause
+    // rather than just the name — the row is only useful if it reads
+    // the conductor's verdict where the conductor writes it.
+    let repair = registry.get_active("repair").await.expect("repair row");
+    assert_eq!(repair.predicate.kind.as_deref(), Some("pr-train"));
+    let ci = repair.predicate.step.as_ref().expect("ci-step clause");
+    assert_eq!(ci.slug.as_deref(), Some("ci"));
+    assert_eq!(
+        ci.metadata_equals.get("result"),
+        Some(&"failing".to_string())
+    );
+    assert_eq!(
+        repair.discipline,
+        vec![boss_jobs::station_queue::DisciplineKey::Age],
+        "age alone — every train carries the same priority, so ordering \
+         by it first would sort by nothing and then by age"
     );
 
     let dock = registry.get_active("loading-dock").await.expect("dock row");
