@@ -32,11 +32,21 @@ impl MessageRepository for PgMessages {
         Ok(rows.into_iter().map(|r| r.into_message()).collect())
     }
 
-    async fn unread_count(&self, recipient_id: &str) -> Result<u32, MessageError> {
+    async fn unread_count(
+        &self,
+        recipient_id: &str,
+        kind: Option<&str>,
+    ) -> Result<u32, MessageError> {
+        // One statement with a NULL-tolerant clause rather than two
+        // query strings: `$2 IS NULL OR kind = $2` keeps the filtered
+        // and unfiltered counts provably the same query.
         let row: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM messages WHERE recipient_id = $1 AND read_at IS NULL",
+            "SELECT COUNT(*) FROM messages \
+             WHERE recipient_id = $1 AND read_at IS NULL \
+               AND ($2::text IS NULL OR kind = $2)",
         )
         .bind(recipient_id)
+        .bind(kind)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| MessageError::Storage(e.to_string()))?;

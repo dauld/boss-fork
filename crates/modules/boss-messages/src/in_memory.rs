@@ -46,11 +46,16 @@ impl MessageRepository for InMemoryMessages {
         Ok(msgs)
     }
 
-    async fn unread_count(&self, recipient_id: &str) -> Result<u32, MessageError> {
+    async fn unread_count(
+        &self,
+        recipient_id: &str,
+        kind: Option<&str>,
+    ) -> Result<u32, MessageError> {
         let guard = self.messages.read().await;
         let count = guard
             .iter()
             .filter(|m| m.recipient_id == recipient_id && m.read_at.is_none())
+            .filter(|m| kind.is_none_or(|k| m.kind.0 == k))
             .count();
         Ok(count as u32)
     }
@@ -229,7 +234,7 @@ mod tests {
     #[tokio::test]
     async fn unread_count_correct() {
         let repo = test_repo();
-        let count = repo.unread_count("emp-001").await.unwrap();
+        let count = repo.unread_count("emp-001", None).await.unwrap();
         assert_eq!(count, 2);
     }
 
@@ -268,11 +273,11 @@ mod tests {
     #[tokio::test]
     async fn mark_read_reduces_unread_count() {
         let repo = test_repo();
-        let before = repo.unread_count("emp-001").await.unwrap();
+        let before = repo.unread_count("emp-001", None).await.unwrap();
         repo.mark_read("msg-001", Utc::now(), &test_stamp())
             .await
             .unwrap();
-        let after = repo.unread_count("emp-001").await.unwrap();
+        let after = repo.unread_count("emp-001", None).await.unwrap();
         assert_eq!(after, before - 1);
     }
 

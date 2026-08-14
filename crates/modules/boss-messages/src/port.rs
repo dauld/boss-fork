@@ -22,7 +22,17 @@ pub enum MessageError {
 #[async_trait]
 pub trait MessageRepository: Send + Sync {
     async fn inbox(&self, recipient_id: &str) -> Result<Vec<Message>, MessageError>;
-    async fn unread_count(&self, recipient_id: &str) -> Result<u32, MessageError>;
+    /// Unread messages for a recipient, optionally narrowed to one
+    /// `kind`. The narrowing is what makes the count usable as a
+    /// badge: an inbox holding 1,980 unread `signal` rows against 3
+    /// unread `direct` ones renders the noise as a number unless the
+    /// caller can ask the question the reader actually has, which is
+    /// "is anything addressed to me?". `None` counts every kind.
+    async fn unread_count(
+        &self,
+        recipient_id: &str,
+        kind: Option<&str>,
+    ) -> Result<u32, MessageError>;
     async fn message_by_id(&self, id: &str) -> Result<Option<Message>, MessageError>;
     /// Mark a message read at the given timestamp. Caller picks the
     /// timestamp so the same value can be carried in the
