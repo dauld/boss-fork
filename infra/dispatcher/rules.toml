@@ -523,7 +523,7 @@ args = { recipient_key = "\"submitted_by\"" }
 # "disk full") and put three machines at 100% on 2026-08-13.
 [[rule]]
 name = "maintenance-sweep-disk-daily"
-schedule = { cadence = "daily", anchor_date = 2026-08-14 }
+schedule = { cadence = "daily", anchor_date = "2026-08-14" }
 [[rule.do]]
 handler = "jobs.spawn"
 args = { kind = "\"maintenance-sweep\"", subject_kind = "\"custom\"", subject = "\"disk-headroom\"", title = "\"Disk headroom sweep\"", "metadata.target" = "\"disk-headroom\"", "metadata.area" = "\"infra\"" }
