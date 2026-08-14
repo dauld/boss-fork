@@ -103,6 +103,13 @@ async fn a_merged_car_fires_the_completion_with_its_edge_and_branches() {
     hreg.register(RecordingHandler::new("jobs.clear_waiting"));
     hreg.register(RecordingHandler::new("jobs.subjob_resolve"));
     hreg.register(RecordingHandler::new("messages.notify_job_terminal"));
+    // Also fires on jobs.job.closed (expire-signals-on-job-closed,
+    // migration 128): a car closing archives the stale signals about
+    // it. Registered here because `dispatch` refuses an unknown
+    // handler, so every rule matching this topic must be satisfiable
+    // — the test asserts the completion fires ONCE, not that it is
+    // the only thing that fires.
+    hreg.register(RecordingHandler::new("messages.expire_for_job"));
     let results = dispatch(&matched, &hreg, "evt-1", "jobs.job.closed", &payload)
         .await
         .expect("every named handler is registered");
