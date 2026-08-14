@@ -1,14 +1,23 @@
-//! `messages.notify` — turn a `step.ready.<kind>` event into an inbox
-//! message to the responsible role's on-call member.
+//! `messages.notify` — turn a step lifecycle event into an inbox
+//! message ADDRESSED TO SOMEONE.
 //!
 //! This is the **push** side of the human-powered-state-machine
 //! dispatcher. The **pull** side (the `/api/jobs/assignments` My Day
-//! query) is what actually drives work; this handler adds awareness —
-//! when a step becomes Ready we resolve its `authority_role` to the
-//! active employees who hold it and message the deterministic on-call
-//! member (lowest id), linking the message to the Job. One message per
-//! ready step — no role-wide fan-out. Steps with no `authority_role`
-//! (generic / outcome kinds an operator picks off a queue) are a no-op.
+//! query) is what actually drives work; this handler adds awareness.
+//!
+//! Two events reach a person, and nothing else does:
+//!
+//! - a step becoming READY **with an assignee** — somebody put it in
+//!   front of you, so it sends a `direct`;
+//! - a step marked `notify_on_done` COMPLETING — the wait-is-over
+//!   announcement, which still resolves a role to its on-call member
+//!   and sends a `signal`.
+//!
+//! A ready step with only an `authority_role` sends NOTHING (David,
+//! 2026-08-14: "we aren't ready for human on-call yet"). It is still
+//! routed — it sits in the role's pull queue — but nobody is paged for
+//! a duty that does not exist. A step with neither an assignee nor a
+//! role was always a no-op.
 
 use super::common::{
     StepEvent, dispatcher_actor_header, dispatcher_reader_header, sim_origin_value,
@@ -109,6 +118,46 @@ impl Handler for MessagesNotify {
             .and_then(|v| v.as_str())
             .filter(|r| !r.is_empty());
         if recipient_id.is_none() && role.is_none() {
+            return Ok(());
+        }
+
+        // NO ON-CALL BROADCAST FOR A READY STEP. David, 2026-08-14,
+        // answering approval 934cb22c: "No. We aren't ready for human
+        // on-call yet."
+        //
+        // The fallback resolved a step's `authority_role` to the
+        // deterministic on-call member and messaged them, which is
+        // where the volume came from: `automation:dispatcher` sent 910
+        // messages to one person in two days, and the residue is
+        // pipeline steps an AGENT works — every step an agent completes
+        // makes the next one ready and pings the human holding the
+        // role. Nobody is on call, so the message is addressed to a
+        // duty that does not exist yet.
+        //
+        // Nothing is lost that drives work: the PULL side is the real
+        // routing (the `/api/jobs/assignments` role queue — "Up for
+        // grabs" on My Day), and a role-only step still sits there.
+        // The push was awareness, and awareness aimed at a vacancy is
+        // noise.
+        //
+        // A step.done topic is EXEMPT, and that exemption is why this
+        // is a condition rather than a deleted branch.
+        // `notify-on-step-done-marked` is opt-in per step
+        // (`notify_on_done: true`, which the pr-train Workflow sets on
+        // ci / merged / deployed) and it is how an operator learns a
+        // wait is over — David asked for it on 2026-08-09. Low volume
+        // by construction, and addressed to a real question.
+        //
+        // Keyed on the TRIGGERING TOPIC, not on the `id_prefix` rule
+        // argument. The first cut used the prefix, and the suite caught
+        // it: `a_done_topic_announces_done_not_ready` invokes a
+        // `step.done.*` topic with no args, so a done announcement
+        // would have been suppressed because a DEDUP-ID argument
+        // happened to be absent. The topic is what the event IS; the
+        // prefix is bookkeeping about message ids, and hanging
+        // behaviour off it would be a coincidence rather than a rule.
+        let is_done = ctx.triggering_topic.starts_with("step.done.");
+        if recipient_id.is_none() && !is_done {
             return Ok(());
         }
 
@@ -358,6 +407,16 @@ mod tests {
         )
     }
 
+    /// A ready step ADDRESSED to someone. Since the on-call
+    /// broadcast was removed (David, 934cb22c: "we aren't ready for
+    /// human on-call yet"), an assignee is what makes a READY step
+    /// notify at all, so the tests that check message SHAPE use this.
+    fn assigned_ready_payload() -> serde_json::Value {
+        let mut p = ready_payload();
+        p["assignee_id"] = serde_json::json!("emp-aa-001");
+        p
+    }
+
     fn ready_payload() -> serde_json::Value {
         serde_json::json!({
             "job_id": "11111111-1111-1111-1111-111111111111",
@@ -438,7 +497,9 @@ mod tests {
     async fn links_to_the_step_not_the_job() {
         let (people, messages, captured) = mock_services().await;
         let h = MessagesNotify::with_client(reqwest::Client::new(), people, messages);
-        h.invoke(&[], &ctx(ready_payload())).await.expect("notify");
+        h.invoke(&[], &ctx(assigned_ready_payload()))
+            .await
+            .expect("notify");
 
         let sent = captured
             .lock()
@@ -463,7 +524,9 @@ mod tests {
     async fn subject_names_the_subject() {
         let (people, messages, captured) = mock_services().await;
         let h = MessagesNotify::with_client(reqwest::Client::new(), people, messages);
-        h.invoke(&[], &ctx(ready_payload())).await.expect("notify");
+        h.invoke(&[], &ctx_on("step.done.task", ready_payload()))
+            .await
+            .expect("notify");
 
         let sent = captured
             .lock()
@@ -476,13 +539,19 @@ mod tests {
             "subject must identify WHICH item: {subject}"
         );
         assert!(subject.contains("review-design"), "subject: {subject}");
-        // The role still has to reach the reader; it moved to the body.
+        // This used to also assert the body named the responsible TEAM.
+        // That wording only ever appeared on the ready-plus-role path,
+        // and that path no longer sends anything (David, 934cb22c: "we
+        // aren't ready for human on-call yet"), so there is no surviving
+        // message that names a team. What the body must still do is say
+        // what happened — dropping the assertion rather than replacing
+        // it would leave the body unchecked.
         assert!(
             sent["body"]
                 .as_str()
                 .unwrap_or_default()
-                .contains("platform-admin"),
-            "body must still name the responsible team: {}",
+                .contains("completed"),
+            "body must say what happened to the step: {}",
             sent["body"]
         );
     }
@@ -493,7 +562,9 @@ mod tests {
     async fn notifies_the_lowest_id_holder_with_a_stable_id() {
         let (people, messages, captured) = mock_services().await;
         let h = MessagesNotify::with_client(reqwest::Client::new(), people, messages);
-        h.invoke(&[], &ctx(ready_payload())).await.expect("notify");
+        h.invoke(&[], &ctx_on("step.done.task", ready_payload()))
+            .await
+            .expect("notify");
 
         let sent = captured
             .lock()
@@ -546,7 +617,7 @@ mod tests {
     async fn id_prefix_arg_separates_done_notifications_from_ready() {
         let (people, messages, captured) = mock_services().await;
         let h = MessagesNotify::with_client(reqwest::Client::new(), people, messages);
-        let payload = ready_payload();
+        let payload = assigned_ready_payload();
         let args = vec![(
             "id_prefix".to_string(),
             boss_dispatcher::rules::expr::Value::String("done".into()),
@@ -554,7 +625,7 @@ mod tests {
         h.invoke(&args, &ctx(payload)).await.expect("handles");
         let body = captured.lock().unwrap().clone().expect("posted");
         assert_eq!(
-            body["id"], "done:22222222-2222-2222-2222-222222222222:emp-aa",
+            body["id"], "done:22222222-2222-2222-2222-222222222222:emp-aa-001",
             "the id prefix must come from the rule arg"
         );
     }
