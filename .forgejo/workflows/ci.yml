@@ -109,6 +109,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Ahead of the workspace gate on purpose. Most train reds are the
+      # SHARED fixture breaking — the schema directory, or the TestDb
+      # harness itself — which reds every DB-backed crate at once and is
+      # invisible to the per-crate `gate.sh -p <crate>` an agent runs
+      # before pushing. Measured 2026-08-15: 79% of train reds surfaced
+      # only in this job, the slowest one. This step compiles one crate,
+      # so it names a broken fixture in the first minutes; and the
+      # compile is one the gate needs anyway, so a green train pays
+      # nothing for it. Rationale in the test's own module docs.
+      - name: Fixture smoke
+        run: cargo test -p boss-testing --features postgres --test fixture_smoke
+
       - name: Apply schema
         run: infra/postgres/migrate.sh -- psql "$DATABASE_URL"
 
