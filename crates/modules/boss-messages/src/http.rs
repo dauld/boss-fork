@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -155,11 +155,19 @@ async fn unread<R: MessageRepository + 'static>(
     State(state): State<Arc<MessageApiState<R>>>,
     CurrentUser(user): CurrentUser,
     Path(employee_id): Path<String>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Response {
     if !is_trusted(&user) && user.id != employee_id {
         return StatusCode::FORBIDDEN.into_response();
     }
-    match state.messages.unread_count(&employee_id).await {
+    // `?kind=direct` narrows the count to messages addressed to a
+    // person. The chrome badge asks for that specifically: an inbox
+    // holding 1,980 unread `signal` rows against 3 unread `direct`
+    // ones would otherwise render the noise as a number, which is the
+    // opposite of a signal. Absent, every kind counts, so existing
+    // callers are unchanged.
+    let kind = params.get("kind").map(String::as_str);
+    match state.messages.unread_count(&employee_id, kind).await {
         Ok(count) => Json(UnreadResponse { count }).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
