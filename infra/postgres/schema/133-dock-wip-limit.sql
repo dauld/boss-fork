@@ -41,15 +41,33 @@
 -- Validated against the running /api/stations/_validate before this
 -- file was written (`{"ok":true,"problems":[]}`), which also runs
 -- `station_lint`'s guard against a non-positive limit.
+-- RETIRE FIRST, THEN INSERT. One active version per station name is the
+-- ambiguity the registry exists to prevent, and
+-- `stations_one_active_per_name` (116) is a plain partial unique index —
+-- enforced per STATEMENT, not deferred to commit. Inserting an active v2
+-- while v1 is still active violates it and takes the whole schema load
+-- down, so every DB-backed test in the workspace aborts before running
+-- and the error names a constraint rather than this file. That is
+-- exactly how 130-watchlist-dismiss.sql reddened train 20260815-0420;
+-- see `a-registry-version-bump-retires-before-it-inserts` in
+-- docs/invariants.toml. The v1 row is still readable inside the
+-- transaction after the UPDATE, so the SELECT below still finds it.
+UPDATE stations SET status = 'retired'
+ WHERE name = 'loading-dock' AND version = 1;
+
+-- Every column is carried forward except the one being changed.
+-- `upstream` is named explicitly because omitting it is silent: the new
+-- row is valid, the station still works, and the only symptom is that
+-- the dock lens loses its FEEDBACK link — a navigational aid that is
+-- worse absent than broken, since it disappears exactly when someone is
+-- diagnosing. `stations_pg::the_seeded_upstream_pointers_round_trip`
+-- caught this on the train; it is pinned there.
 INSERT INTO stations (name, version, status, title, kind, predicate, discipline,
-                      wip_limit, terminal_window_days, capability, rollup_parent)
+                      wip_limit, terminal_window_days, capability, rollup_parent,
+                      upstream)
 SELECT name, 2, 'active', title, kind, predicate, discipline,
-       24, terminal_window_days, capability, rollup_parent
+       24, terminal_window_days, capability, rollup_parent,
+       upstream
   FROM stations
  WHERE name = 'loading-dock' AND version = 1
 ON CONFLICT (name, version) DO NOTHING;
-
--- One active version per station name is the ambiguity the registry
--- exists to prevent.
-UPDATE stations SET status = 'retired'
- WHERE name = 'loading-dock' AND version = 1;

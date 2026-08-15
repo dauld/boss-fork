@@ -291,23 +291,35 @@ async fn pg_writes_stage_their_events_in_the_outbox() {
     );
 
     // Versioning against the seeded loading-dock row: a new draft
-    // appends v2, publish demotes v1.
-    let v2 = registry
+    // appends the NEXT version and publish demotes the one before it.
+    //
+    // The numbers are 3 and 2, not 2 and 1, because
+    // 133-dock-wip-limit.sql seeds an active v2 carrying the WIP limit.
+    // Written as next/previous relative to what the seed leaves active
+    // so the next migration that versions this station does not have to
+    // come back and edit arithmetic — the only thing this test is about
+    // is that a draft appends and a publish demotes.
+    let seeded = registry
+        .get_active("loading-dock")
+        .await
+        .expect("seeded active dock");
+    let next = seeded.version + 1;
+    let draft = registry
         .create_draft(spec("loading-dock"), &author(), now)
         .await
-        .expect("draft v2");
-    assert_eq!(v2.version, 2);
+        .expect("draft the next version");
+    assert_eq!(draft.version, next);
     registry
         .publish("loading-dock", &author(), now)
         .await
-        .expect("publish v2");
-    let v1 = registry
-        .get_version("loading-dock", 1)
+        .expect("publish the next version");
+    let previous = registry
+        .get_version("loading-dock", seeded.version)
         .await
-        .expect("v1 row");
-    assert_eq!(v1.status, WorkflowStatus::Retired);
+        .expect("previously active row");
+    assert_eq!(previous.status, WorkflowStatus::Retired);
     let active = registry.get_active("loading-dock").await.expect("active");
-    assert_eq!(active.version, 2);
+    assert_eq!(active.version, next);
 }
 
 #[tokio::test(flavor = "multi_thread")]
