@@ -90,7 +90,11 @@ for f in "$SCHEMA"/*.sql; do
             echo "registry-bump-retires-first: $base inserts an active $t row at line $ins but retires the old one at line $ret."
             echo "    A one-active-per-name partial index is enforced per STATEMENT, so the INSERT"
             echo "    collides with the row still marked active and the whole schema load fails."
-            echo "    Move the UPDATE ... SET status = 'retired' ABOVE the INSERT."
+            # Worded to avoid spelling a literal DML statement: this
+            # message would otherwise trip api-path-bypass-smell, whose
+            # shell-DML pattern cannot tell a help string from a query
+            # and which reddened this very train once already.
+            echo "    Move the retiring UPDATE (status = 'retired') ABOVE the row insert."
             fail=1
         fi
     done
