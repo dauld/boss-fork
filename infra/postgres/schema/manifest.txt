@@ -52,3 +52,4 @@
 126-answer-question-plugin.sql
 130-watchlist-dismiss.sql
 134-cadence-window-off-grid.sql
+135-sign-off-plugin.sql
