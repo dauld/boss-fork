@@ -2331,6 +2331,60 @@ impl Conductor {
                 "--quiet",
                 &format!("fork/{branch}"),
             ])?;
+            // RECOVER RATHER THAN SKIP. A car is parked at review by its
+            // author pushing the branch; the natural place to push is
+            // the upstream the author cloned, and the fork is an
+            // implementation detail of how this conductor assembles a
+            // train. On 2026-08-14 that gap silently held NINE cars for
+            // a whole session: the dock reported 12 parked while the
+            // boardable count was 0, because `parked_ready` asks
+            // "branch declared, review ready" and this asks "branch on
+            // the fork" — two predicates for one question, and only the
+            // first is on any dashboard.
+            //
+            // So if the branch exists upstream, put it on the fork and
+            // board the car. Copying a ref the author already published
+            // is not a judgement call; refusing to, and reporting a
+            // dock depth that cannot board, is the surprising
+            // behaviour. A branch that exists in NEITHER place is still
+            // a real skip — that car was never pushed at all.
+            let mut ok = ok;
+            if !ok.status.success() {
+                let upstream = sh_unchecked(&[
+                    "git",
+                    "-C",
+                    &self.cfg.clone,
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    &format!("origin/{branch}"),
+                ])?;
+                if upstream.status.success() && !self.cfg.dry {
+                    let pushed = sh_unchecked(&[
+                        "git",
+                        "-C",
+                        &self.cfg.clone,
+                        "push",
+                        "fork",
+                        &format!("origin/{branch}:refs/heads/{branch}"),
+                    ])?;
+                    if pushed.status.success() {
+                        log(format!(
+                            "{}: branch {branch} was upstream but not on the fork — pushed it",
+                            id8(&jid)
+                        ));
+                        ok = sh_unchecked(&[
+                            "git",
+                            "-C",
+                            &self.cfg.clone,
+                            "rev-parse",
+                            "--verify",
+                            "--quiet",
+                            &format!("fork/{branch}"),
+                        ])?;
+                    }
+                }
+            }
             if !ok.status.success() {
                 let reason = skip_reason_branch_missing(&branch);
                 log(format!("{}: {reason} — leaving behind", id8(&jid)));
@@ -3100,6 +3154,21 @@ mod tests {
         assert_eq!(
             skip_reason_conflict(&[]),
             "conflict: unresolved (merge died before conflict markers)"
+        );
+    }
+
+    /// The dock-depth metric and the boardable count must answer the
+    /// same question. On 2026-08-14 they did not: `parked_ready` said
+    /// 12 while `candidates` boarded 0, because every branch had been
+    /// pushed upstream and none to the fork. The conductor now closes
+    /// that gap by copying the ref, so this reason is reserved for a
+    /// branch that exists in NEITHER place — a car never pushed at all.
+    #[test]
+    fn a_branch_missing_everywhere_is_still_a_real_skip() {
+        assert_eq!(
+            skip_reason_branch_missing("feat/never-pushed"),
+            "branch feat/never-pushed not on fork",
+            "the skip survives for the genuine case: nothing to copy"
         );
     }
 
