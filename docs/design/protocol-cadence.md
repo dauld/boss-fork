@@ -75,38 +75,52 @@ shadow against the timers; (3) the timers delete, systemd unit goes
 long-running; (4) the maintenance family migrates onto wall-basis
 rows, retiring its ExecStartPre wrapper pattern.
 
-## Open questions
+## Decision history
 
-### Q1: What is the cadence row's shape?
+All four questions resolved by David, 2026-08-15, on review job
+`47f3c3d2`. Each was accepted as proposed; the notes below record what
+that commits us to, and — for Q1 — where the running system does not
+yet match the decision.
 
-Proposed: dispatcher rules grow a `[[cadence]]` sibling: `name`,
-`basis: wall|clock`, `every` (interval) or `at` (times-of-day),
-`emit` (topic + payload template). Same table, same hot-reload, same
-ratchet posture as `[[rule]]` — and the departure board's "next
-departure" line reads it as data.
-
-### Q2: Where does the wall-basis tick come from?
-
-The schedule runner drives off the clock service's tick stream,
-which under warp compresses days. Proposed: the clock service
-already knows both times (`ClockNow` carries wall and sim); the
-cadence runner evaluates wall-basis rows against wall time from the
-same feed — one clock service remains authoritative for both bases,
-and no component grows a second time source.
-
-### Q3: Exactly-once windows across restarts?
-
-A cadence firing must not double-emit after a dispatcher restart nor
-skip a window that elapsed while down. Proposed: each firing records
-its event with a deterministic id (`cadence:<name>:<window-stamp>`),
-the outbox dedupes on it, and catch-up on start emits at most the
-single most-recent missed window per rule — a deliberate "no
-thundering backfill" choice matching the conductor's own
-one-window-at-a-time cadence.
-
-### Q4: Does the conductor's queue use the claim CAS?
-
-Proposed: yes — window packets are ordinary packets; `boss train
-serve` claims via the same CAS the human queues use, which gives the
-board's live dot its data and makes a second conductor instance safe
-by construction rather than by deployment discipline.
+- **2026-08-15 — the cadence row is a `[[cadence]]` sibling of
+  `[[rule]]`.** `name`, `basis: wall|clock`, `every` (interval) or `at`
+  (times-of-day), `emit` (topic + payload template): same table, same
+  hot-reload, same ratchet posture as a dispatcher rule, and the
+  departure board's "next departure" line reads it as data.
+  **THE IMPLEMENTATION DIVERGES AND THIS DECISION IS THE ONE TO
+  FOLLOW.** What shipped (114-cadence-rules.sql) is a SEPARATE
+  `cadence_rules` table, read by `boss train cadence` through its own
+  sqlx pool rather than through the dispatcher's registry. The
+  divergence is not cosmetic: because that pool points at boss-gcp's
+  local Postgres while packets live on the cluster, the registry an
+  operator can read has not been the registry the loop obeys — measured
+  2026-08-14, cluster `cadence_firings` 0 rows against 244 locally, and
+  an agent read the system of record and told David a four-car dock
+  would board when it would not. Folding cadence into the dispatcher
+  rules table is what makes that class impossible rather than merely
+  fixed; tracked as `protocol-data-agrees-between-record-and-runtime`
+  in docs/invariants.toml.
+- **2026-08-15 — one clock in the system.** The clock service already
+  knows both times (`ClockNow` carries wall and sim), so the cadence
+  runner evaluates wall-basis rows against wall time from that same
+  feed. No component grows a second time source, and warp keeps
+  compressing days for everything at once.
+- **2026-08-15 — exactly-once windows come from a deterministic firing
+  id.** `cadence:<name>:<window-stamp>`, deduped by the outbox, with
+  catch-up on start emitting at most the single most-recent missed
+  window per rule. No thundering backfill, matching the conductor's own
+  one-window-at-a-time cadence. Live and observable: a catch-up firing
+  for the 06:05Z window ran at 14:26Z on 2026-08-15 and fired once.
+- **2026-08-15 — window packets are ordinary packets, claimed through
+  the same CAS as human queues.** `boss train serve` claims a window
+  the way an actor claims a step, which gives the departure board's
+  live dot its data and makes a second conductor instance safe by
+  construction rather than by deployment discipline. This supersedes
+  the current arrangement, where a firing is claimed in
+  `cadence_firings` BEFORE the verb runs and the conductor's flock
+  decides afterwards whether the work happens — so a verb that loses
+  the lock consumes its window and leaves silently. That defect is
+  filed as `4ed0e791`: the 06:00/18:00 boarding window collided with
+  the 10-minute reconcile every single time and had never, in the
+  system's history, boarded a train. A claim that happens where the
+  work happens is exactly what removes it.
