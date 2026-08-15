@@ -1957,6 +1957,28 @@ impl Conductor {
                     })
                     .unwrap_or_default();
                 for cid in boarded {
+                    // The car's review closes HERE, not at boarding —
+                    // the change was open for review until it landed,
+                    // and leaving the step ready while the car rides is
+                    // what lets a cancelled train release it (see the
+                    // boarding loop). Completed first, because the
+                    // ship-a-change spec gates `merged` on
+                    // `steps.review.done AND job.metadata.merged`, and
+                    // the marker below is what the dispatcher watches to
+                    // close the Job.
+                    let car = self.get_job(&cid).await?;
+                    let review = find_step(&car, "review", "Open for review");
+                    if !step_done(review) {
+                        self.complete_step(
+                            &car,
+                            review,
+                            &[
+                                ("pr_url", Some(pr_url.clone())),
+                                ("note", Some(format!("landed on main as {merge_ref}"))),
+                            ],
+                        )
+                        .await?;
+                    }
                     // v3 ship-a-change gates `merged` on this marker; the
                     // dispatcher closes the Job once it is set.
                     self.merge_job_metadata(
@@ -2575,19 +2597,31 @@ impl Conductor {
         .await?;
 
         for (j, _branch, head) in &boarded {
-            let review = find_step(j, "review", "Open for review");
-            self.complete_step(
-                j,
-                review,
-                &[
-                    ("pr_url", Some(pr_url.clone())),
-                    (
-                        "note",
-                        Some(format!("boarded train {} ({train_branch})", id8(&train_id))),
-                    ),
-                ],
-            )
-            .await?;
+            // BOARDING DOES NOT COMPLETE `review` — the merge does.
+            //
+            // It used to complete it here, and that quietly made
+            // cancelling a loaded train impossible. A released car has
+            // to become `parked_ready` again, which requires its review
+            // step to be ready or active; but a completed step is FROZEN
+            // at the row (`update_step_at` pins status, completed_on and
+            // metadata on terminal rows, deliberately, so a racing
+            // read-modify-write cannot demote it). So the cancel path's
+            // reopen was a no-op that returned 204, and every "released
+            // car back to the dock" line it logged was false — the car
+            // had `train` cleared but stayed unboardable forever. The
+            // only reason nobody hit it is that every cancel until now
+            // carried zero cars.
+            //
+            // Boarded-ness does not need the step at all: it is
+            // `metadata.train`, which is what `parked_ready` already
+            // reads, and which a cancel can clear because metadata is
+            // not frozen. So the step keeps meaning what it says —
+            // this change is open for review until it lands — and
+            // release becomes a metadata write with nothing to reverse.
+            // (Requires no workflow edit: the spec still gates the
+            // `merged` outcome on `steps.review.done`, and the merge
+            // block below is what satisfies it.)
+            //
             // skip_reason cleared on boarding, in the same update that
             // stamps the train: an earlier window's skip note must not
             // outlive the skip — the key is REMOVED (Null), not left
@@ -2676,23 +2710,16 @@ impl Conductor {
         }
         for car in releasable_cars(&cars) {
             let cid = job_id(car)?;
-            let review = find_step(car, "review", "Open for review");
-            if let Some(review) = review.filter(|s| step_done(Some(s))) {
-                if self.cfg.dry {
-                    log(format!("DRY: would reopen review on {}", id8(cid)));
-                } else {
-                    let sid = review
-                        .get("id")
-                        .and_then(Value::as_str)
-                        .ok_or_else(|| anyhow!("review step without an id on job {cid}"))?;
-                    self.api(
-                        Method::PUT,
-                        &format!("/api/jobs/{cid}/steps/{sid}"),
-                        Some(json!({"status": "ready"})),
-                    )
-                    .await?;
-                }
-            }
+            // NOTHING TO REOPEN. Releasing a car is a metadata write and
+            // only a metadata write, because boarding no longer completes
+            // its `review` step — see the boarding loop. This used to PUT
+            // the step back to `ready`, which the row silently refused
+            // (terminal steps are frozen in `update_step_at`) and which
+            // now 409s out loud, taking the whole cancel with it. A car
+            // that predates this change still carries a completed review
+            // and cannot be released; those were translated into fresh
+            // packets by hand on 2026-08-15 rather than reversed.
+            //
             // The boarded head goes with the train stamp: this car
             // boarded nothing now, and a stale head is not evidence
             // about whatever it boards next.
@@ -2882,6 +2909,34 @@ mod tests {
         let mut t = ready_car();
         t["metadata"]["branch"] = json!("train/20260812-0600");
         assert!(!parked_ready(&t));
+    }
+
+    #[test]
+    fn a_released_car_is_parked_ready_again() {
+        // THE INVARIANT THAT MAKES CANCELLING A LOADED TRAIN POSSIBLE.
+        // Releasing a car clears `train` and nothing else, so the car
+        // must be boardable on that write alone. It is — as long as
+        // boarding left the review step ready.
+        let mut boarded = ready_car();
+        boarded["metadata"]["train"] = json!("train-job-id");
+        boarded["metadata"]["boarded_head"] = json!("abc1234");
+        assert!(!parked_ready(&boarded));
+
+        let mut released = boarded.clone();
+        released["metadata"]["train"] = Value::Null;
+        released["metadata"]["boarded_head"] = Value::Null;
+        assert!(
+            parked_ready(&released),
+            "a released car must re-enter the dock on the metadata write alone"
+        );
+
+        // And the reason boarding must NOT complete the step: a
+        // completed review is frozen at the row, so a released car
+        // carrying one could never board again and the cancel would be
+        // a lie.
+        let mut released_but_reviewed = released.clone();
+        released_but_reviewed["steps"][0]["status"] = json!("completed");
+        assert!(!parked_ready(&released_but_reviewed));
     }
 
     #[test]
