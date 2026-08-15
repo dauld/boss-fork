@@ -20,6 +20,12 @@
     packageLabel,
     priceLabel,
   } from './brewery-products';
+  import {
+    NO_FLOW,
+    summariseFeedback,
+    type FeedbackPacket,
+    type GuestFlowSummary,
+  } from './guestFlow';
 
   type InventoryRow = Readonly<{
     part_sku: string;
@@ -58,6 +64,32 @@
     };
   });
 
+  // The feedback guests have sent, and where each piece actually got
+  // to. Guest-safe: /api/jobs applies the same read scope at the door
+  // that every other surface gets, so a session that may not see
+  // packets simply renders no panel rather than an error — the
+  // storefront below is what most visitors came for.
+  let flow = $state<GuestFlowSummary>(NO_FLOW);
+
+  $effect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch('/api/jobs?kind=user-feedback&limit=100');
+        if (!r.ok) return;
+        const body = await r.json();
+        const rows: FeedbackPacket[] = Array.isArray(body) ? body : (body.data ?? []);
+        if (!cancelled) flow = summariseFeedback(rows);
+      } catch {
+        // Same posture as the inventory read: a transient blip costs
+        // the panel, never the page.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  });
+
   function availability(sku: string): { label: string; tone: 'in' | 'low' | 'out' | 'unknown' } {
     if (!stock.has(sku)) return { label: 'check availability', tone: 'unknown' };
     const n = stock.get(sku)!;
@@ -70,16 +102,62 @@
 <div class="catalog theme-exec">
   <header class="shop-hero">
     <div class="shop-hero-inner">
-      <h1 class="shop-hero-title">Algedonic Ales — Storefront</h1>
+      <h1 class="shop-hero-title">Welcome to Algedonic Ales</h1>
       <p class="shop-hero-sub">
-        Pick up beer direct from the brewery. Kegs ship on local
-        routes; bottles ship via packing slip. Stock numbers come
-        straight off the warehouse projection — what you see is
-        what's in the cooler right now.
+        A working brewery, and a working example. Every order, batch
+        and delivery here is modelled in BOSS — so the stock numbers
+        below are not a mock-up, they come straight off the warehouse
+        projection. What you see is what's in the cooler right now.
+      </p>
+      <p class="shop-hero-sub">
+        As a guest you can browse and order the beer, follow an order
+        through the brewery, and — using the feedback control in the
+        bar at the top — tell us what you think. That last one is the
+        interesting part: your feedback becomes a real job in the real
+        IT department, and you can watch where it goes.
       </p>
     </div>
   </header>
 
+  {#if flow.received > 0}
+    <!-- The claim this panel makes is unusual, so it is made from live
+         data or not at all: these are `user-feedback` Jobs moving
+         through the same stations, protocols and trains as every other
+         piece of work in the system. Nothing here is rounded, and the
+         ones that were declined say so. -->
+    <section class="guest-flow">
+      <h2 class="guest-flow-title">Guest feedback, in the works</h2>
+      <div class="guest-flow-stats">
+        <div class="guest-stat">
+          <span class="guest-stat-n">{flow.received}</span>
+          <span class="guest-stat-l">received</span>
+        </div>
+        <div class="guest-stat">
+          <span class="guest-stat-n">{flow.done}</span>
+          <span class="guest-stat-l">acted on</span>
+        </div>
+        <div class="guest-stat">
+          <span class="guest-stat-n">{flow.inFlight}</span>
+          <span class="guest-stat-l">still moving</span>
+        </div>
+      </div>
+      <ul class="guest-flow-list">
+        {#each flow.recent as item (item.id)}
+          <li class="guest-flow-row">
+            <span class="guest-flow-about">{item.about}</span>
+            <span class="guest-flow-stage" class:is-done={item.finished}>{item.stage}</span>
+            <span class="guest-flow-when">{item.opened_on}</span>
+          </li>
+        {/each}
+      </ul>
+      <p class="guest-flow-foot">
+        Each one is a job packet with an owner, a protocol and an audit
+        trail — the same machinery that moves a keg order.
+      </p>
+    </section>
+  {/if}
+
+  <h2 class="guest-shop-title">From the brewery</h2>
   <section class="shop-grid">
     {#each BREWERY_PRODUCTS as p (p.sku)}
       {@const to = href(`/ux/shop/${encodeURIComponent(p.sku)}`)}
@@ -129,6 +207,96 @@
 </div>
 
 <style>
+  /* The feedback panel is instrument text, not marketing: mono for the
+     numbers and stages so it reads as a live board rather than a
+     testimonial wall. Same idiom as the yard. */
+  .guest-flow {
+    border: 1px solid var(--hairline, #2A3138);
+    border-radius: 8px;
+    padding: 16px 18px;
+    margin: 0 0 24px;
+  }
+  .guest-flow-title {
+    font-size: 15px;
+    margin: 0 0 12px;
+  }
+  .guest-flow-stats {
+    display: flex;
+    gap: 28px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  .guest-stat {
+    display: flex;
+    flex-direction: column;
+  }
+  .guest-stat-n {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 26px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+  }
+  .guest-stat-l {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 11px;
+    letter-spacing: var(--ls-nav, 0.14em);
+    text-transform: uppercase;
+    color: var(--static, #7A838C);
+    margin-top: 2px;
+  }
+  .guest-flow-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .guest-flow-row {
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--hairline, #2A3138);
+  }
+  .guest-flow-row:last-child {
+    border-bottom: none;
+  }
+  .guest-flow-about {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 12px;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .guest-flow-stage {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 11px;
+    letter-spacing: var(--ls-label, 0.1em);
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  /* Finished reads quieter than moving: the panel is about work in
+     flight, and a wall of green ticks would say the opposite. */
+  .guest-flow-stage.is-done {
+    color: var(--static, #7A838C);
+  }
+  .guest-flow-when {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 11px;
+    color: var(--static, #7A838C);
+    white-space: nowrap;
+  }
+  .guest-flow-foot {
+    color: var(--static, #7A838C);
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 12px 0 0;
+    max-width: 70ch;
+  }
+  .guest-shop-title {
+    font-size: 15px;
+    margin: 0 0 12px;
+  }
   .brewery-image {
     background: linear-gradient(135deg, #c2410c 0%, #7c2d12 100%);
     color: rgba(255, 255, 255, 0.92);
