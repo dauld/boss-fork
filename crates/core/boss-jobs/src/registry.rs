@@ -240,6 +240,7 @@ impl WorkflowSpec {
 /// "workflow"` per Q3 of the design doc — reuses the existing
 /// CustomSubject support without forcing a new Subject variant
 /// in `boss-core`.
+#[cfg(test)]
 fn workflow_design_spec() -> WorkflowSpec {
     let steps = vec![
         StepSpec {
@@ -782,6 +783,7 @@ fn regenerate_deployment_spec() -> WorkflowSpec {
 ///   0. `triage`  — measure the claim, choose a route (human-gated)
 ///   1..n         — one branch per route
 ///   999. `closed`
+#[cfg(test)]
 fn backlog_item_spec() -> WorkflowSpec {
     const DISPOSITIONS: &str = "verify|design|build|duplicate|stale|decline";
 
@@ -952,17 +954,15 @@ pub fn platform_workflows() -> Vec<WorkflowSpec> {
             "Ledger replay check",
             "The 03:30 rooted-at-audit-log replay comparison.",
         ),
-        workflow_design_spec(),
         design_doc_review_spec(),
         user_feedback_spec(),
         ship_a_change_spec(),
-        backlog_item_spec(),
         pr_train_spec(),
-        // `regenerate-deployment` is NOT missing — it moved to
-        // infra/platform/workflows.toml and is supplied by
-        // `boss-platform-workflow-seed` (protocols-as-data, step 1: the
-        // kind with no traffic first, so a wrong loader can hurt
-        // nothing).
+        // `workflow-design`, `regenerate-deployment` and `backlog-item`
+        // are NOT missing — they moved to infra/platform/workflows.toml
+        // and are supplied by `boss-platform-workflow-seed`
+        // (protocols-as-data, step 1: the kinds with no traffic first,
+        // so a wrong loader can hurt nothing).
         //
         // Leaving this list is the point of the exercise. A kind here
         // is a protocol that cannot be changed without a deploy, and
@@ -970,19 +970,22 @@ pub fn platform_workflows() -> Vec<WorkflowSpec> {
         // A kind in the bundle is data: the seed inserts it once and
         // nothing ever overwrites it.
         //
-        // ONE kind at a time, and the bundle is what says which. This
-        // list read three short for an hour — `workflow-design` and
-        // `backlog-item` were removed alongside it while the bundle
-        // held only `regenerate-deployment`, which on a fresh
-        // deployment supplies a kind from neither path. The fidelity
-        // test below is what caught it. Convert those two by adding
-        // them to the bundle FIRST; the test then tells you the
-        // removal is safe.
+        // THE BUNDLE IS WHAT SAYS WHICH, and it has to be read on the
+        // main this lands on rather than the one the branch was cut
+        // from. This car spent a round narrowed to `regenerate-deployment`
+        // alone, because at its base commit the bundle held one
+        // workflow. Train #45 added the other two an hour later, so
+        // measuring against the branch point would have left
+        // `workflow-design` and `backlog-item` in BOTH places — and a
+        // kind in both places is the worse failure, not the safe one:
+        // bootstrap_reconcile republishes the code version over the
+        // bundle's on every boot, which is precisely what moving them
+        // out was for.
         //
-        // `regenerate_deployment_spec` survives below under
-        // #[cfg(test)] as that test's expected value — the proof the
-        // bundle says exactly what the code used to. It is deleted for
-        // real once the test has watched a release go by.
+        // The three builders survive below under #[cfg(test)] as the
+        // fidelity test's expected value — the proof the bundle says
+        // exactly what the code used to. They are deleted for real
+        // once that test has watched a release go by.
     ]
 }
 
@@ -3621,7 +3624,11 @@ mod tests {
         );
         let bundled =
             crate::seed_loader::load_workflows(bundle_path).expect("the platform bundle parses");
-        let expected = [regenerate_deployment_spec()];
+        let expected = [
+            workflow_design_spec(),
+            regenerate_deployment_spec(),
+            backlog_item_spec(),
+        ];
         assert_eq!(
             bundled.len(),
             expected.len(),
@@ -4954,17 +4961,20 @@ mod tests {
         // infra/platform/workflows.toml.
         assert_eq!(
             kinds.len(),
-            9,
-            "ships workflow-design + design-doc-review + user-feedback + ship-a-change \
-             + backlog-item + pr-train + the three maintenance kinds (backup / \
-             audit-integrity / ledger-replay — internal-forge Q6). \
-             `regenerate-deployment` is in the bundle, not here."
+            7,
+            "ships design-doc-review + user-feedback + ship-a-change + pr-train \
+             + the three maintenance kinds (backup / audit-integrity / ledger-replay \
+             — internal-forge Q6). workflow-design, regenerate-deployment and \
+             backlog-item are in the bundle, not here."
         );
-        assert!(
-            !kinds.iter().any(|k| k.kind == "regenerate-deployment"),
-            "regenerate-deployment is supplied by the bundle; a kind in both places \
-             gets rewritten by bootstrap_reconcile on every boot"
-        );
+        for bundled_kind in ["workflow-design", "regenerate-deployment", "backlog-item"] {
+            assert!(
+                !kinds.iter().any(|k| k.kind == bundled_kind),
+                "`{bundled_kind}` is supplied by the bundle; a kind in BOTH places is \
+                 worse than a kind in neither — bootstrap_reconcile republishes the \
+                 code version over the bundle's on every boot"
+            );
+        }
 
         // The boundary declaration is the whole point of the kind, so
         // it gets pinned rather than left to the generic viability
@@ -5084,10 +5094,13 @@ mod tests {
         // world moved (`stale`), another had a stale rationale but a
         // live defect (`verify`). Drop either and a backlog rots into
         // fiction with nowhere to record why.
-        let backlog = kinds
+        // Follows the kind into the bundle, like the regenerate-deployment
+        // assertions above. A guarantee that lapses because its subject
+        // moved house is a guarantee that was deleted quietly.
+        let backlog = bundled
             .iter()
             .find(|k| k.kind == "backlog-item")
-            .expect("backlog-item present");
+            .expect("backlog-item present in the bundle");
         let triage = backlog
             .steps
             .iter()
@@ -5115,10 +5128,10 @@ mod tests {
             "`evidence` must be required at done"
         );
 
-        let design = kinds
+        let design = bundled
             .iter()
             .find(|k| k.kind == "workflow-design")
-            .expect("workflow-design present");
+            .expect("workflow-design present in the bundle");
         assert_eq!(design.version, 1);
         assert_eq!(design.status, WorkflowStatus::Active);
         assert_eq!(design.subject_kinds, vec!["custom".to_string()]);
@@ -5227,11 +5240,19 @@ mod tests {
 
     #[test]
     fn platform_workflows_steps_run_design_to_publish_in_four_steps() {
-        let kinds = platform_workflows();
+        // `workflow-design` is bundle-supplied now, so the lifecycle is
+        // asserted where the lifecycle lives. The alternative — dropping
+        // the test with the kind — is how a four-step contract quietly
+        // becomes whatever the TOML happens to say.
+        let kinds = crate::seed_loader::load_workflows(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../infra/platform/workflows.toml"
+        ))
+        .expect("the platform bundle parses");
         let design = kinds
             .iter()
             .find(|k| k.kind == "workflow-design")
-            .expect("workflow-design present");
+            .expect("workflow-design present in the bundle");
         // v2: flat steps, DAG implicit in ready_when. The lifecycle is
         // author → validate → approve(sign-off) → publish(terminal).
         let steps = &design.steps;
@@ -5252,11 +5273,13 @@ mod tests {
         assert_eq!(steps[3].kind, "workflow-publish"); // publish
         assert!(steps[3].terminal.is_some(), "publish is the terminal step");
 
-        // design-doc-review carries 3 steps: open → review → reviewed.
-        let review = kinds
-            .iter()
+        // design-doc-review is still code-supplied, so it is asserted
+        // against the code — this test now reads both registries, which
+        // is what the split actually looks like.
+        let review = platform_workflows()
+            .into_iter()
             .find(|k| k.kind == "design-doc-review")
-            .expect("design-doc-review present");
+            .expect("design-doc-review present in platform_workflows");
         assert_eq!(review.steps.len(), 3, "review lifecycle has 3 steps");
     }
 
