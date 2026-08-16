@@ -33,6 +33,9 @@ set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 
 WORKFLOW=".forgejo/workflows/ci.yml"
+# The image required-tools.txt describes. Jobs on any other image are
+# out of its scope and are skipped.
+IMAGE="10.20.0.15:3000/david/boss-ci:rust1.96"
 MANIFEST="infra/forge/boss-ci/required-tools.txt"
 
 for f in "$WORKFLOW" "$MANIFEST"; do
@@ -40,33 +43,56 @@ for f in "$WORKFLOW" "$MANIFEST"; do
 done
 
 # Present in every Debian base; not worth a manifest line each.
-ALLOWED_BUILTINS="bash sh echo cd set export test true false printf mkdir rm cp mv ln cat sed awk grep sort head tail tr xargs env sleep wait for if while do done then fi"
+ALLOWED_BUILTINS="bash sh echo cd set export test true false printf mkdir rm cp mv ln cat sed awk grep sort head tail tr xargs env sleep wait for if while do done then fi [ ] exit return shift local read eval"
 
 declared=$(grep -vE '^\s*#|^\s*$' "$MANIFEST" | tr -d ' ')
 
-# Leading executable of each `run:` step, single-line form and the
-# first line of a block scalar both.
+# Leading executable of each `run:` step, but ONLY for jobs that run
+# in the boss-ci image — required-tools.txt describes that image and
+# has nothing to say about any other. `build-image` runs in kaniko and
+# invokes /kaniko/executor, which is correct there and absent here;
+# checking it against this manifest would be comparing a tool to the
+# wrong contract.
+#
+# Also skips shell continuation lines: in a `foo \` / `--flag bar`
+# block the second line's first word is an argument, not a command.
 invoked=$(
-    awk '
-        /^[[:space:]]*run:[[:space:]]*\|/ { inblock=1; blockindent=-1; next }
+    awk -v want="$IMAGE" '
+        # A new job at two-space indent resets what we know.
+        /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { injob = 1; image = ""; inblock = 0; next }
+        /^[A-Za-z]/                       { injob = 0; image = ""; inblock = 0 }
+        # `container:` opens the block whose image the job RUNS IN.
+        # `services:` also carries image: keys (the test job pulls
+        # postgres:16) and mistaking one for the other silently made
+        # this scraper skip that whole job — it found 3 commands where
+        # it had found 5, and only the non-vacuity guard below caught
+        # it.
+        injob && /^    container:[[:space:]]*$/ { incontainer = 1; next }
+        injob && /^    [A-Za-z0-9_-]+:/         { incontainer = 0 }
+        injob && incontainer && /^[[:space:]]*image:[[:space:]]*/ {
+            line = $0; sub(/^[[:space:]]*image:[[:space:]]*/, "", line); image = line; next
+        }
+        # Only scrape once the job is known to use the image the
+        # manifest describes.
+        image != want { next }
+        /^[[:space:]]*run:[[:space:]]*[|>]/ { inblock = 1; cont = 0; next }
         inblock {
             if ($0 ~ /^[[:space:]]*$/) next
-            match($0, /^[[:space:]]*/); ind = RLENGTH
-            if (blockindent < 0) blockindent = ind
-            else if (ind < blockindent) { inblock = 0 }
-            if (inblock) { sub(/^[[:space:]]+/, ""); print; next }
+            if ($0 !~ /^[[:space:]][[:space:]]+/) { inblock = 0 }
+            else {
+                line = $0; sub(/^[[:space:]]+/, "", line)
+                was_cont = cont
+                cont = (line ~ /\\$/)
+                if (!was_cont) print line
+                next
+            }
         }
         /^[[:space:]]*run:[[:space:]]*[^|>]/ {
-            sub(/^[[:space:]]*run:[[:space:]]*/, ""); print
+            line = $0; sub(/^[[:space:]]*run:[[:space:]]*/, "", line); print line
         }
     ' "$WORKFLOW" |
     sed -E 's/^#.*//' |
-    # Strip leading VAR=value assignments (PUPPETEER_SKIP_DOWNLOAD=1 bun install)
     sed -E 's/^([A-Za-z_][A-Za-z0-9_]*=[^ ]*[[:space:]]+)+//' |
-    # `bash foo.sh` hides foo.sh behind an allowlisted interpreter, so
-    # the script itself would never be checked — and a step naming a
-    # script that moved fails exactly like `bunx` did. Look through the
-    # interpreter to its argument.
     awk '{ if (($1 == "bash" || $1 == "sh") && NF > 1) print $2; else print $1 }' |
     grep -vE '^$' |
     sort -u
@@ -92,7 +118,7 @@ for tool in $invoked; do
             ;;
     esac
 
-    if ! printf '%s\n' "$declared" | grep -qxF "$tool"; then
+    if ! printf '%s\n' "$declared" | grep -qxF -- "$tool"; then
         echo "ci-tools-declared: $WORKFLOW runs \`$tool\`, which is not in $MANIFEST" >&2
         echo "                   and not a shell builtin. Either add it to the manifest" >&2
         echo "                   (and to the Dockerfile — build.sh stamps the pair), or" >&2

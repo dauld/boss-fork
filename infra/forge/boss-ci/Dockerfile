@@ -31,12 +31,33 @@ FROM oven/bun:1.3-slim AS bun
 
 FROM rust:1.96-slim-bookworm
 
+# NODE COMES FROM NODESOURCE, NOT DEBIAN. bookworm ships Node 18, and
+# Playwright 1.61 refuses to start on anything below 20 — which is how
+# train 52's `web` job died a second time in one evening after the
+# first fix. Measured in the dev pod (`node --version` -> v18.20.4)
+# rather than discovered in CI, which is the whole argument for having
+# a dev pod that runs this image.
+#
+# tmux is here for the durable session: `kubectl exec` dies with the
+# laptop that opened it, so a long agent run needs a multiplexer INSIDE
+# the pod to attach to and detach from. David, 2026-08-16: "My laptop
+# is really meant to just be a thin terminal to interact with a durable
+# session somewhere in the BossInfra layer."
 RUN apt-get update -qq \
  && apt-get install -y --no-install-recommends \
-      nodejs git ca-certificates postgresql-client pkg-config libssl-dev curl \
+      git ca-certificates postgresql-client pkg-config libssl-dev curl gnupg tmux \
+ && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
  && rm -rf /var/lib/apt/lists/*
 
+# bunx, not just bun. The old single-file COPY gave the image `bun`
+# without the `bunx` symlink beside it, so `bunx playwright ...` exited
+# 127 in CI while passing on every developer's Mac — train 52, round
+# one. Copying both is the fix; `bun x` also works and the workflow
+# uses it, but an image that carries half a tool is a trap for the next
+# person.
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 
 RUN rustup component add rustfmt clippy
 
