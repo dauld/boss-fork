@@ -387,12 +387,25 @@ kind = "task"
 ready_when = "steps.evidence.done"
 title_template = "Accept the correction"
 authority_role = "platform-admin"
-fields = [{ name = "verdict", field_type = "string", required = true }]
+# `verdict` picks the terminal, the same shape `approval` uses. Two
+# defects in a row here, both caught by machinery rather than by me:
+#
+# v1 gated `unfounded` on `steps.evidence.done` alone, so the first
+# correction filed through this protocol auto-closed as unfounded the
+# instant its evidence landed, skipping the review it exists to
+# require. Found by using it, a minute after publishing.
+#
+# The fix to that made `verdict` a free-text fork, and the workflow
+# lint refused it: "fork over free-text `verdict` needs a fallback
+# successor". It is right — a typo'd verdict would strand the packet
+# with no reachable terminal. An enum makes the fork total, so every
+# value a reviewer can write leads somewhere.
+fields = [{ name = "verdict", field_type = "accepted|unfounded", required = true }]
 
 [[workflow.step]]
 title = "applied"
 kind = "task"
-ready_when = "steps.review.done"
+ready_when = "steps.review.done AND steps.review.metadata.verdict = \"accepted\""
 title_template = "Land it where the claim lives"
 fields = [{ name = "landed", field_type = "string", required = true }]
 
@@ -407,7 +420,7 @@ terminal = { outcome = "corrected" }
 [[workflow.step]]
 title = "unfounded"
 kind = "outcome"
-ready_when = "steps.evidence.done"
+ready_when = "steps.review.done AND steps.review.metadata.verdict = \"unfounded\""
 title_template = "The original claim held up"
 # `withdrawn`, not `cancelled` — the workflow lint enforces the
 # outcome_kind vocabulary (completed|skipped|aborted|withdrawn) and
