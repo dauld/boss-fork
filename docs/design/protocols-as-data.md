@@ -1,6 +1,6 @@
 # Design: protocols as data — closing the last leak into the substrate
 
-**Status**: in-review — open questions tracked at `/system/design`
+**Status**: approved — in-review — open questions tracked at `/system/design` (2026-08-16).
 **Origin**: David, 2026-08-15: "let's get those protocols prioritized
 to be fully moved into data and registry configurations. That is
 hunting leakage between the layers too." The phrase is CLAUDE.md's own:
@@ -92,58 +92,103 @@ boot.
 
 ## Open questions
 
-### Q1: What replaces `bootstrap_reconcile` for a fresh deployment?
+All 5 open questions were resolved 2026-08-16 via the in-app
+decision tracker and flushed to git. See the Decisions
+section below. This section is kept empty as the landing
+place for any new questions that surface during
+implementation.
 
-Proposed: the seed binary inserts what is missing and touches nothing
-that exists — the same idempotent posture
-`boss-operator-baseline-seed` already has (409 on duplicate = "already
-there, skip"). Drift-healing goes away deliberately: it is the feature
-that reverts operator edits, and once the spec is data there is no
-"code default" for a row to have drifted from.
+---
 
-The thing genuinely lost is the guarantee that every deployment runs
-the same platform protocols. That was never really true — an operator
-could always publish a new version — and the honest replacement is a
-CHECK rather than a rewrite: a boot-time report of platform kinds
-whose active version differs from the shipped bundle, visible and not
-self-healing.
 
-### Q2: Does the viability lint still run at the right moment?
+## Decisions
 
-Proposed: yes, and in more places. `gate_active` already runs on every
-publish path including `publish_authored`, so a bundle loaded through
-the API is linted per row at insert. What is lost is the compile-time
-`every_shipped_platform_seed_is_viable` test. The replacement is a
-test that parses the BUNDLE and lints it — same assertion, one
-indirection, and it catches a malformed TOML the compiler never saw.
+### Q1: What replaces `bootstrap_reconcile` for a fresh deployment? (resolved)
 
-### Q3: TOML bundle, or SQL migrations like the other three registries?
+Resolved 2026-08-16 — accept.
 
-The other three registries seed by migration, which argues for
-consistency. Against it: a workflow spec is a large nested document,
-and a `steps` array as a SQL string literal is unreadable and
-unreviewable — the reason the tenant bundles are TOML.
+**The question was:**
 
-Proposed: TOML through the API, and accept the inconsistency with the
-other three, because the shape of the data differs by an order of
-magnitude. Worth stating the rule so it is not read as drift: a
-registry whose rows are FLAT seeds by migration; a registry whose rows
-are DOCUMENTS seeds by bundle.
+> Proposed: the seed binary inserts what is missing and touches nothing
+> that exists — the same idempotent posture
+> `boss-operator-baseline-seed` already has (409 on duplicate = "already
+> there, skip"). Drift-healing goes away deliberately: it is the feature
+> that reverts operator edits, and once the spec is data there is no
+> "code default" for a row to have drifted from.
+>
+> The thing genuinely lost is the guarantee that every deployment runs
+> the same platform protocols. That was never really true — an operator
+> could always publish a new version — and the honest replacement is a
+> CHECK rather than a rewrite: a boot-time report of platform kinds
+> whose active version differs from the shipped bundle, visible and not
+> self-healing.
 
-### Q4: What happens to in-flight packets during a conversion?
+the seed binary inserts what is missing and touches nothing that exists — the same idempotent posture `boss-operator-baseline-seed` already has (409 on duplicate = "already there, skip"). Drift-healing goes away deliberately: it is the feature that reverts operator edits, and once the spec is data there is no "code default" for a row to have drifted from.
 
-Proposed: nothing, and this is the part to verify rather than assume.
-Jobs pin the version they were admitted under, so moving `user-feedback`
-v10 from code to bundle must produce a row identical to the live v10 —
-not v11. If the loader publishes a new version instead of recognising
-the existing one, every in-flight packet keeps its old spec and the
-board grows a second lineage. The conversion car's test is a diff of
-the row before and after, byte for byte.
 
-### Q5: Do `sale` and `morning-brew` move to the tenant, or just to data?
+### Q5: Do `sale` and `morning-brew` move to the tenant, or just to data? (resolved)
 
-Proposed: to the tenant. They are brewery nouns in core, which is the
-Tier-1/Tier-3 leak CLAUDE.md §10 names, and the brewery bundle that
-should hold them already exists with 25 siblings. Moving them to a
-PLATFORM bundle would fix the layer leak this doc is about while
-leaving a different one in place.
+Resolved 2026-08-16 — override.
+
+**The question was:**
+
+> Proposed: to the tenant. They are brewery nouns in core, which is the
+> Tier-1/Tier-3 leak CLAUDE.md §10 names, and the brewery bundle that
+> should hold them already exists with 25 siblings. Moving them to a
+> PLATFORM bundle would fix the layer leak this doc is about while
+> leaving a different one in place.
+
+These are just data protocols now, but we can put a seed version into tenant if we want. But this shouldn't be important.
+
+
+### Q2: Does the viability lint still run at the right moment? (resolved)
+
+Resolved 2026-08-16 — accept.
+
+**The question was:**
+
+> Proposed: yes, and in more places. `gate_active` already runs on every
+> publish path including `publish_authored`, so a bundle loaded through
+> the API is linted per row at insert. What is lost is the compile-time
+> `every_shipped_platform_seed_is_viable` test. The replacement is a
+> test that parses the BUNDLE and lints it — same assertion, one
+> indirection, and it catches a malformed TOML the compiler never saw.
+
+yes, and in more places. `gate_active` already runs on every publish path including `publish_authored`, so a bundle loaded through the API is linted per row at insert. What is lost is the compile-time `every_shipped_platform_seed_is_viable` test. The replacement is a test that parses the BUNDLE and lints it — same assertion, one indirection, and it catches a malformed TOML the compiler never saw.
+
+
+### Q3: TOML bundle, or SQL migrations like the other three registries? (resolved)
+
+Resolved 2026-08-16 — accept.
+
+**The question was:**
+
+> The other three registries seed by migration, which argues for
+> consistency. Against it: a workflow spec is a large nested document,
+> and a `steps` array as a SQL string literal is unreadable and
+> unreviewable — the reason the tenant bundles are TOML.
+>
+> Proposed: TOML through the API, and accept the inconsistency with the
+> other three, because the shape of the data differs by an order of
+> magnitude. Worth stating the rule so it is not read as drift: a
+> registry whose rows are FLAT seeds by migration; a registry whose rows
+> are DOCUMENTS seeds by bundle.
+
+TOML through the API, and accept the inconsistency with the other three, because the shape of the data differs by an order of magnitude. Worth stating the rule so it is not read as drift: a registry whose rows are FLAT seeds by migration; a registry whose rows are DOCUMENTS seeds by bundle.
+
+
+### Q4: What happens to in-flight packets during a conversion? (resolved)
+
+Resolved 2026-08-16 — accept.
+
+**The question was:**
+
+> Proposed: nothing, and this is the part to verify rather than assume.
+> Jobs pin the version they were admitted under, so moving `user-feedback`
+> v10 from code to bundle must produce a row identical to the live v10 —
+> not v11. If the loader publishes a new version instead of recognising
+> the existing one, every in-flight packet keeps its old spec and the
+> board grows a second lineage. The conversion car's test is a diff of
+> the row before and after, byte for byte.
+
+nothing, and this is the part to verify rather than assume. Jobs pin the version they were admitted under, so moving `user-feedback` v10 from code to bundle must produce a row identical to the live v10 — not v11. If the loader publishes a new version instead of recognising the existing one, every in-flight packet keeps its old spec and the board grows a second lineage. The conversion car's test is a diff of the row before and after, byte for byte.
