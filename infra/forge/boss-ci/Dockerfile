@@ -61,10 +61,21 @@ RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 
 RUN rustup component add rustfmt clippy
 
-# Provenance stamp: build.sh injects the sha256 of (Dockerfile +
-# required-tools.txt); the locomotive CI job recomputes the same hash
-# from its checkout and goes red on a mismatch. That is the equality
-# test (CLAUDE.md 9a) between the image a runner cached and the image
-# this tree describes — build with build.sh, not bare docker build.
-ARG BOSS_CI_STAMP=unstamped
-RUN echo "$BOSS_CI_STAMP" > /etc/boss-ci-stamp
+# Provenance stamp: sha256(Dockerfile + required-tools.txt). The
+# locomotive CI job recomputes the same hash from its checkout and goes
+# red on a mismatch — the equality test (CLAUDE.md 9a) between the image
+# a runner cached and the image this tree describes.
+#
+# THE IMAGE COMPUTES ITS OWN STAMP. It used to arrive as a build-arg,
+# which meant every caller had to derive it correctly and one of them
+# did not: the kaniko CI job ran `cat Dockerfile required-tools.txt`
+# in a container that had no checkout, so it would have stamped the
+# image with the sha256 of empty input and locomotive would have gone
+# on reporting a mismatch with no clue why. Hashing the two files from
+# the build context removes the caller from the loop entirely — there
+# is no longer a way to pass it wrong, because it is not passed.
+COPY Dockerfile required-tools.txt /tmp/stamp/
+RUN cat /tmp/stamp/Dockerfile /tmp/stamp/required-tools.txt \
+      | sha256sum | cut -d' ' -f1 > /etc/boss-ci-stamp \
+ && rm -rf /tmp/stamp \
+ && cat /etc/boss-ci-stamp

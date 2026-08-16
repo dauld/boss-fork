@@ -67,6 +67,12 @@ jobs:
       - name: Build and push the runner image
         env:
           TOKEN: ${{ secrets.FORGE_PACKAGE_TOKEN }}
+          # Kaniko resolves a git:// context over HTTPS by default and
+          # the forge speaks plain HTTP on 3000, so the first run died
+          # with "server gave HTTP response to HTTPS client". This is
+          # the documented knob; the alternative is terminating TLS in
+          # front of Forgejo, which is a bigger change than this job.
+          GIT_PULL_METHOD: http
         run: |
           set -eu
           [ -n "${TOKEN:-}" ] || {
@@ -80,12 +86,16 @@ jobs:
           printf '{"auths":{"10.20.0.15:3000":{"auth":"%s"}}}' \
             "$(printf 'david:%s' "$TOKEN" | base64 | tr -d '\n')" \
             > /kaniko/.docker/config.json
+          # No --build-arg for the stamp: the Dockerfile hashes its own
+          # build context. This job has no checkout, so any `cat
+          # Dockerfile` here would have hashed empty input and stamped
+          # the image with a value locomotive could never match.
           /kaniko/executor \
             --context "git://david:${TOKEN}@10.20.0.15:3000/david/boss.git#${GITHUB_SHA}" \
             --context-sub-path infra/forge/boss-ci \
             --dockerfile Dockerfile \
             --destination 10.20.0.15:3000/david/boss-ci:rust1.96 \
-            --build-arg "BOSS_CI_STAMP=$(cat Dockerfile required-tools.txt 2>/dev/null | sha256sum | cut -d' ' -f1)" \
+            --insecure --skip-tls-verify \
             --cache=true \
             --cache-repo 10.20.0.15:3000/david/boss-ci-cache
 
