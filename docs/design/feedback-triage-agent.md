@@ -1,6 +1,6 @@
 # Design: What kind of agent should triage feedback?
 
-**Status**: open — evidence gathering. No implementation work yet.
+**Status**: approved — open — evidence gathering. No implementation work yet (2026-08-16).
 **Related**: [human-powered-state-machine.md](./human-powered-state-machine.md) ·
 [extending-boss.md](./extending-boss.md)
 
@@ -178,69 +178,100 @@ cosmetic.
 
 ## Open questions
 
-### Q1: Does feedback triage need a language model, or do rules suffice?
+All 3 open questions were resolved 2026-08-16 via the in-app
+decision tracker and flushed to git. See the Decisions
+section below. This section is kept empty as the landing
+place for any new questions that surface during
+implementation.
 
-The evidence table decides this. The shape to watch for: if most items
-are dispositioned by *route + class + a duplicate check*, rules win and
-an LLM is expensive ceremony. If most need "is this already fixed, and
-does the described behaviour match what the code does" — that is repo
-comprehension, and rules cannot fake it.
+---
 
-A likely third answer is a split: rules do classification, routing, and
-duplicate detection deterministically; a model is invoked only for the
-residual that a rule declines. That would keep the cheap path cheap and
-make the expensive path auditable, which is the same shape as the
-pushdown seam in `boss-views` — push down what is mechanical, evaluate
-the residual honestly.
 
-### Q2: Where does an agent's finding go? — ANSWERED
+## Decisions
 
-Today the board records that an agent was *asked* (`agent_requested_at`)
-but has nowhere to put what the agent *found*. Every hand pass so far
-has produced a paragraph of reasoning that lives only in this doc,
-which does not scale past the experiment and is invisible to the
-operator looking at the card.
+### Q3: Should the agent be allowed to close an item? (resolved)
 
-Answered by the passes rather than by choosing. Across eight
-hand-processed items a finding was consistently two things: **a root
-cause** — a claim about the code that the feedback text never mentions
-— and **what was done about it**, usually a commit. Never a structured
-verdict, never a proposed Job. So it is free text with provenance, and
-a schema would have been invented rather than observed.
+Resolved 2026-08-16 — override.
 
-Built as an optional `finding` field declared on the triage step, so
-it is self-describing data rather than a board convention: the generic
-step surface renders it from the same contract, and no second place
-has to be taught about feedback. Optional because a finding is
-evidence, and triage can legitimately route something obvious without
-one.
+**The question was:**
 
-Two properties the build had to preserve. A finding is **not a
-decision** — writing one leaves the item in triage, because finding
-something and deciding what to do about it are different acts, and
-collapsing them was the original modelling error behind "With an
-agent" being a column. And it **outlives routing**, rendering on
-routed cards too; otherwise the reason a card went where it went
-disappears the moment it gets there.
+> An agent looking is deliberately not a decision — the card stays in
+> flight, and only a human completes the triage step. Whether that
+> should stay true depends on Q1's answer. If rules handle a clean
+> majority with high confidence, letting them auto-close noise (blank
+> submissions, duplicates of an open item) is a real saving. If every
+> disposition needs judgment, the human stays in the loop and the agent
+> is an assistant that drafts.
+>
+> Note the policy angle: the triage step is gated by
+> `authority_role: platform-admin`, which is what stopped the sim
+> workforce from completing these Jobs the moment they went ready. Any
+> auto-close path has to hold that gate, not route around it.
 
-Provenance (`finding_by`) is recorded for the same reason the
-hand-off record is: an agent taking an automatic first pass writes the
-identical shape, and the surface should not care which wrote it.
+This should just be a question of the current protocol implementation, which is just data and can be updated. Agents with proper policy under certain protocols will definitely be able to close items.
 
-### Q3: Should the agent be allowed to close an item?
 
-An agent looking is deliberately not a decision — the card stays in
-flight, and only a human completes the triage step. Whether that
-should stay true depends on Q1's answer. If rules handle a clean
-majority with high confidence, letting them auto-close noise (blank
-submissions, duplicates of an open item) is a real saving. If every
-disposition needs judgment, the human stays in the loop and the agent
-is an assistant that drafts.
+### Q2: Where does an agent's finding go? — ANSWERED (resolved)
 
-Note the policy angle: the triage step is gated by
-`authority_role: platform-admin`, which is what stopped the sim
-workforce from completing these Jobs the moment they went ready. Any
-auto-close path has to hold that gate, not route around it.
+Resolved 2026-08-16 — override.
+
+**The question was:**
+
+> Today the board records that an agent was *asked* (`agent_requested_at`)
+> but has nowhere to put what the agent *found*. Every hand pass so far
+> has produced a paragraph of reasoning that lives only in this doc,
+> which does not scale past the experiment and is invisible to the
+> operator looking at the card.
+>
+> Answered by the passes rather than by choosing. Across eight
+> hand-processed items a finding was consistently two things: **a root
+> cause** — a claim about the code that the feedback text never mentions
+> — and **what was done about it**, usually a commit. Never a structured
+> verdict, never a proposed Job. So it is free text with provenance, and
+> a schema would have been invented rather than observed.
+>
+> Built as an optional `finding` field declared on the triage step, so
+> it is self-describing data rather than a board convention: the generic
+> step surface renders it from the same contract, and no second place
+> has to be taught about feedback. Optional because a finding is
+> evidence, and triage can legitimately route something obvious without
+> one.
+>
+> Two properties the build had to preserve. A finding is **not a
+> decision** — writing one leaves the item in triage, because finding
+> something and deciding what to do about it are different acts, and
+> collapsing them was the original modelling error behind "With an
+> agent" being a column. And it **outlives routing**, rendering on
+> routed cards too; otherwise the reason a card went where it went
+> disappears the moment it gets there.
+>
+> Provenance (`finding_by`) is recorded for the same reason the
+> hand-off record is: an agent taking an automatic first pass writes the
+> identical shape, and the surface should not care which wrote it.
+
+Answered already
+
+
+### Q1: Does feedback triage need a language model, or do rules suffice? (resolved)
+
+Resolved 2026-08-16 — override.
+
+**The question was:**
+
+> The evidence table decides this. The shape to watch for: if most items
+> are dispositioned by *route + class + a duplicate check*, rules win and
+> an LLM is expensive ceremony. If most need "is this already fixed, and
+> does the described behaviour match what the code does" — that is repo
+> comprehension, and rules cannot fake it.
+>
+> A likely third answer is a split: rules do classification, routing, and
+> duplicate detection deterministically; a model is invoked only for the
+> residual that a rule declines. That would keep the cheap path cheap and
+> make the expensive path auditable, which is the same shape as the
+> pushdown seam in `boss-views` — push down what is mechanical, evaluate
+> the residual honestly.
+
+Let's use a language model agent for now. We will use our Claude Code session to see how that works without a major LLM investment yet.
 
 ## Decision history
 
