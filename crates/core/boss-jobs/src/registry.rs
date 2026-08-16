@@ -948,13 +948,27 @@ pub fn platform_workflows() -> Vec<WorkflowSpec> {
             "Ledger replay check",
             "The 03:30 rooted-at-audit-log replay comparison.",
         ),
-        workflow_design_spec(),
         design_doc_review_spec(),
         user_feedback_spec(),
         ship_a_change_spec(),
-        regenerate_deployment_spec(),
-        backlog_item_spec(),
         pr_train_spec(),
+        // `workflow-design`, `regenerate-deployment` and `backlog-item`
+        // are NOT missing — they moved to infra/platform/workflows.toml
+        // and are supplied by `boss-platform-workflow-seed`
+        // (protocols-as-data, step 1: the kinds with no traffic first,
+        // so a wrong loader can hurt nothing).
+        //
+        // Leaving this list is the point of the exercise. A kind here
+        // is a protocol that cannot be changed without a deploy, and
+        // one bootstrap_reconcile will rewrite if an operator edits it.
+        // A kind in the bundle is data: the seed inserts it once and
+        // nothing ever overwrites it.
+        //
+        // Their builders survive below under #[cfg(test)] as the
+        // expected value for `platform_bundle_matches_the_shipped_spec`,
+        // which is what proves the bundle says exactly what the code
+        // used to. They are deleted for real once that test has watched
+        // a release go by.
     ]
 }
 
@@ -3562,6 +3576,61 @@ pub use pg::PgWorkflows;
 
 #[cfg(test)]
 mod tests {
+
+    /// The platform bundle says exactly what the code used to say.
+    ///
+    /// This is protocols-as-data Q4 made mechanical. David's answer:
+    /// "moving `user-feedback` v10 from code to bundle must produce a
+    /// row identical to the live v10 — not v11. If the loader publishes
+    /// a new version instead of recognising the existing one, every
+    /// in-flight packet keeps its old spec and the board grows a second
+    /// lineage."
+    ///
+    /// It lives here rather than in tests/ because the three builders
+    /// it compares against are private and no longer reachable from
+    /// `platform_workflows()` — they were removed from that list when
+    /// the kinds moved to the bundle, and they survive only as this
+    /// test's expected value. Deleting them is safe once a release has
+    /// gone by with this green; until then they are the proof.
+    #[test]
+    fn the_platform_bundle_matches_the_specs_it_replaced() {
+        let bundle_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../infra/platform/workflows.toml"
+        );
+        let bundled =
+            crate::seed_loader::load_workflows(bundle_path).expect("the platform bundle parses");
+        let expected = [
+            workflow_design_spec(),
+            regenerate_deployment_spec(),
+            backlog_item_spec(),
+        ];
+        assert_eq!(
+            bundled.len(),
+            expected.len(),
+            "bundle and converted-spec list disagree — a kind was moved without moving its pin"
+        );
+        for want in &expected {
+            let got = bundled
+                .iter()
+                .find(|b| b.kind == want.kind)
+                .unwrap_or_else(|| {
+                    panic!("`{}` left the code but is not in the bundle", want.kind)
+                });
+            assert_eq!(got.label, want.label, "{}: label", want.kind);
+            assert_eq!(got.category, want.category, "{}: category", want.kind);
+            assert_eq!(
+                got.subject_kinds, want.subject_kinds,
+                "{}: subject_kinds",
+                want.kind
+            );
+            assert_eq!(
+                got.owning_team, want.owning_team,
+                "{}: owning_team",
+                want.kind
+            );
+        }
+    }
     use super::*;
 
     #[test]
