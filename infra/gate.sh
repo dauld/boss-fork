@@ -145,6 +145,7 @@ path_map() {
            -e 's|^infra/lint/.*|boss-testing|p' \
            -e 's|^\.forgejo/workflows/ci\.yml$|boss-testing|p' \
            -e 's|^infra/dispatcher/rules\.toml$|boss-dispatcher|p' \
+           -e 's|^infra/platform/workflows\.toml$|boss-jobs|p' \
            | sort -u | tr '\n' ' '
 }
 
@@ -167,6 +168,15 @@ scope_self_test() {
     # Design docs are INPUT to boss-docs' corpus gate, so a docs-only
     # car really does have a crate to compile.
     _case "a genuinely docs-only car" "boss-docs" "docs/design/payload-encryption.md"
+    # The platform bundle is DATA, but boss-jobs compiles a test that
+    # parses and lints it (`the_platform_bundle_matches_the_specs_it
+    # _replaced`). Without this line a protocol-only car scoped to
+    # "lints + fmt only" and never ran the one test that can reject it
+    # — which is how correct-the-record's second defect nearly shipped:
+    # the bundle lint caught a free-text fork with no fallback, and the
+    # gate would not have run that lint at all.
+    _case "a protocol-only car still has a crate" "boss-jobs" \
+        "infra/platform/workflows.toml"
     _case "two files, one crate" "boss-cli" \
         "crates/orchestrators/boss-cli/src/train.rs" \
         "crates/orchestrators/boss-cli/src/docs.rs"
