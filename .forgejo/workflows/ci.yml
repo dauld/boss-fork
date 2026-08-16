@@ -45,6 +45,67 @@ jobs:
       - name: Locomotive check
         run: bash infra/forge/locomotive.sh
 
+  # THE FRONTEND JOB THAT WAS ONLY EVER ON GITHUB.
+  #
+  # `.github/workflows/ci.yml` has carried a `web` job — typecheck,
+  # unit, build, and the mocked Playwright smoke — since 2026-08-08.
+  # This file, the one that actually gates a train, had none. GitHub is
+  # the public mirror and is pushed by hand with David's sign-off, so
+  # in practice those 13 spec files ran when somebody remembered, which
+  # is the same as never: after the `/system/*` → `/it/*` rename the
+  # route-smoke drift test sat red and unseen, and the crawl was
+  # exercising a legacy alias instead of the twenty canonical paths.
+  #
+  # infra/gate.sh deliberately does NOT grow a `test:mocked` check.
+  # The gate runs inside boss-ci, which has no browser, and the image
+  # carries a provenance stamp (build.sh hashes Dockerfile +
+  # required-tools.txt; locomotive.sh recomputes it and reds on a
+  # mismatch) — so adding chromium there means an image rebuild and a
+  # registry push landing in the same breath as the code. Installing
+  # the browser in the job instead costs ~1 min per run and no
+  # coordination. `playwright` is likewise absent from
+  # required-tools.txt on purpose: that manifest lists what must exist
+  # in the IMAGE, and this one arrives at run time.
+  #
+  # Runs parallel to `test`, so it adds no wall-clock to a green train.
+  web:
+    runs-on: docker
+    needs: [locomotive]
+    container:
+      image: 10.20.0.15:3000/david/boss-ci:rust1.96
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        # PUPPETEER_SKIP_DOWNLOAD for the same reason svelte-check.sh
+        # sets it: boss-web depends on puppeteer, whose postinstall
+        # browser download fails in this container, and bun aborts the
+        # WHOLE install on a failed postinstall — so nothing installs
+        # and the failure reads as a missing tool.
+        run: PUPPETEER_SKIP_DOWNLOAD=1 bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Unit tests
+        run: bun run test:unit
+
+      - name: Build
+        run: bun run build
+
+      - name: Install Playwright browser
+        # --with-deps pulls the shared libraries chromium needs on
+        # slim-bookworm. Root in the job container, so apt-get works.
+        run: bunx playwright install --with-deps chromium
+
+      - name: Frontend smoke (mocked backend)
+        # Every /api call is intercepted in-browser, so there is no
+        # backend and no seeding — 61 assertions in ~40s.
+        run: bun run test:mocked
+
   fast:
     runs-on: docker
     needs: [locomotive]
