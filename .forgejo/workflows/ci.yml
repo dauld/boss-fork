@@ -97,9 +97,17 @@ jobs:
         run: bun run build
 
       - name: Install Playwright browser
+        # `bun x`, NOT `bunx`. The image copies a single file from
+        # oven/bun — `COPY --from=bun /usr/local/bin/bun` — and `bunx`
+        # is a separate symlink that does not come with it. Locally
+        # both work, so this passed every check on a developer's box
+        # and exited 127 on train 52's first run. `bun x` is the same
+        # command with no second binary to depend on.
+        #
         # --with-deps pulls the shared libraries chromium needs on
-        # slim-bookworm. Root in the job container, so apt-get works.
-        run: bunx playwright install --with-deps chromium
+        # slim-bookworm; the job container runs as root and the
+        # Dockerfile's own apt-get proves the base can reach a mirror.
+        run: bun x playwright install --with-deps chromium
 
       - name: Frontend smoke (mocked backend)
         # Every /api call is intercepted in-browser, so there is no
