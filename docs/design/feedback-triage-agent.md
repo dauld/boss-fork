@@ -193,40 +193,6 @@ make the expensive path auditable, which is the same shape as the
 pushdown seam in `boss-views` — push down what is mechanical, evaluate
 the residual honestly.
 
-### Q2: Where does an agent's finding go? — ANSWERED
-
-Today the board records that an agent was *asked* (`agent_requested_at`)
-but has nowhere to put what the agent *found*. Every hand pass so far
-has produced a paragraph of reasoning that lives only in this doc,
-which does not scale past the experiment and is invisible to the
-operator looking at the card.
-
-Answered by the passes rather than by choosing. Across eight
-hand-processed items a finding was consistently two things: **a root
-cause** — a claim about the code that the feedback text never mentions
-— and **what was done about it**, usually a commit. Never a structured
-verdict, never a proposed Job. So it is free text with provenance, and
-a schema would have been invented rather than observed.
-
-Built as an optional `finding` field declared on the triage step, so
-it is self-describing data rather than a board convention: the generic
-step surface renders it from the same contract, and no second place
-has to be taught about feedback. Optional because a finding is
-evidence, and triage can legitimately route something obvious without
-one.
-
-Two properties the build had to preserve. A finding is **not a
-decision** — writing one leaves the item in triage, because finding
-something and deciding what to do about it are different acts, and
-collapsing them was the original modelling error behind "With an
-agent" being a column. And it **outlives routing**, rendering on
-routed cards too; otherwise the reason a card went where it went
-disappears the moment it gets there.
-
-Provenance (`finding_by`) is recorded for the same reason the
-hand-off record is: an agent taking an automatic first pass writes the
-identical shape, and the surface should not care which wrote it.
-
 ### Q3: Should the agent be allowed to close an item?
 
 An agent looking is deliberately not a decision — the card stays in
@@ -241,6 +207,49 @@ Note the policy angle: the triage step is gated by
 `authority_role: platform-admin`, which is what stopped the sim
 workforce from completing these Jobs the moment they went ready. Any
 auto-close path has to hold that gate, not route around it.
+
+
+## Decisions
+
+### Q2: Where does an agent's finding go? — ANSWERED (resolved)
+
+Resolved 2026-08-16 — override.
+
+**The question was:**
+
+> Today the board records that an agent was *asked* (`agent_requested_at`)
+> but has nowhere to put what the agent *found*. Every hand pass so far
+> has produced a paragraph of reasoning that lives only in this doc,
+> which does not scale past the experiment and is invisible to the
+> operator looking at the card.
+>
+> Answered by the passes rather than by choosing. Across eight
+> hand-processed items a finding was consistently two things: **a root
+> cause** — a claim about the code that the feedback text never mentions
+> — and **what was done about it**, usually a commit. Never a structured
+> verdict, never a proposed Job. So it is free text with provenance, and
+> a schema would have been invented rather than observed.
+>
+> Built as an optional `finding` field declared on the triage step, so
+> it is self-describing data rather than a board convention: the generic
+> step surface renders it from the same contract, and no second place
+> has to be taught about feedback. Optional because a finding is
+> evidence, and triage can legitimately route something obvious without
+> one.
+>
+> Two properties the build had to preserve. A finding is **not a
+> decision** — writing one leaves the item in triage, because finding
+> something and deciding what to do about it are different acts, and
+> collapsing them was the original modelling error behind "With an
+> agent" being a column. And it **outlives routing**, rendering on
+> routed cards too; otherwise the reason a card went where it went
+> disappears the moment it gets there.
+>
+> Provenance (`finding_by`) is recorded for the same reason the
+> hand-off record is: an agent taking an automatic first pass writes the
+> identical shape, and the surface should not care which wrote it.
+
+Answered in this doc's own body — 'answered by the passes rather than by choosing' — and since shipped: both `triage` and `investigate` declare a `finding` field on the step, so a root cause and what was done about it live on the step that produced them rather than in prose here. The heading has said ANSWERED for some time; this is the tracker catching up.
 
 ## Decision history
 
