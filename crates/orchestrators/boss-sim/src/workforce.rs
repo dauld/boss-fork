@@ -552,7 +552,6 @@ impl Workforce {
         metadata: &Value,
         emp: &str,
         sign_offs_required: &[String],
-        assurance_required: None,
         authored_fields: &[(String, String)],
         now: DateTime<Utc>,
     ) -> Result<()> {
