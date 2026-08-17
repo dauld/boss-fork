@@ -47,6 +47,87 @@ if [ "$AUTO" -eq 1 ] && [ ${#NAMED[@]} -gt 0 ]; then
     exit 2
 fi
 
+
+# DISK FLOOR, before anything compiles.
+#
+# On 2026-08-16 this box ran out of disk mid-`cargo build`. The failure
+# was not a build error: the volume filled, the tool harness could no
+# longer create a file to hold a command's output, and NOTHING would
+# run — not the gate, not `df`, not the cleanup. Recovering it needed a
+# human at a terminal.
+#
+# locomotive.sh has had exactly this check for the CI runner since
+# 2026-08-14 (`min_free_gb`, default 70), written after a full disk
+# surfaced as four unrelated boss-ledger tests failing on "could not
+# extend file" and cost an hour of archaeology. Three hosts run builds
+# — the runner, the dev pod, this box — and only the runner could say
+# "not enough disk" before spending twenty minutes finding out. That
+# asymmetry is the defect (CLAUDE.md 9a), not the number.
+#
+# A FLOOR, not a prediction. A cold workspace build measured ~74GB on
+# the forge host; an incremental one on a warm target is a fraction of
+# that, so a gate floor set at 74 would refuse almost every honest run.
+# 12GB is set where it means something: below it a compile is likely to
+# die partway and take the shell with it, and refusing costs two
+# seconds instead of a wedged machine. It will not catch every
+# too-tight case, and that is stated rather than papered over.
+#
+# The durable fix is not a bigger number: it is building in the dev pod
+# (188GB on node-local scratch, one workspace instead of six worktrees
+# each with their own target/). This is the guard for whichever host
+# ends up running it.
+#
+# AND IT IS CHECKED BEFORE EVERY PHASE, not only at startup. A one-shot
+# precondition cannot catch the failure it was written for: the run
+# STARTS above the floor and then grows a `target/` — 32GB in the
+# 2026-08-16 incident, 81GB on the Mac when this poll was added — so
+# the only reading that matters is the one taken while the build is
+# under way. `check()` is where every phase passes through, which makes
+# it the poll point; the cost is one `df` per phase against a gate whose
+# phases run for minutes.
+#
+# Tripping mid-run EXITS rather than recording a failed check. A gate
+# that keeps going after this consumes the disk it just warned about,
+# and the reported incident is precisely what that costs: the harness
+# could no longer create the file it writes command output into, so
+# `df` and `rm` stopped working too and the failure had disabled its
+# own diagnosis.
+gate_min_free_gb="${BOSS_GATE_MIN_FREE_GB:-12}"
+
+# The free-space reader, overridable ONLY so the poll itself can be
+# tested — a fake that shrinks across calls is a faithful model of the
+# incident, and there is no other way to prove re-evaluation without
+# actually filling a disk.
+gate_avail_gb() {
+    local kb
+    kb="$(${BOSS_GATE_DF_CMD:-df -Pk .} 2>/dev/null | awk 'NR==2 {print $4}')"
+    if [ -z "${kb}" ]; then
+        echo "gate: could not read free space for $(pwd) — refusing rather than guessing." >&2
+        exit 2
+    fi
+    echo $((kb / 1024 / 1024))
+}
+
+# `when` is "to start" or "to continue" — the distinction matters when
+# reading a log: the second means the run itself ate the headroom.
+require_headroom() {
+    local when="$1" avail
+    avail="$(gate_avail_gb)" || exit 2
+    if [ "${avail}" -ge "${gate_min_free_gb}" ]; then
+        return 0
+    fi
+    echo "gate: ${avail}GB free, need ${gate_min_free_gb}GB. Refusing ${when}." >&2
+    echo "  A build that fills this volume does not fail cleanly — it wedges the" >&2
+    echo "  shell, and on 2026-08-16 it stopped even \`df\` from running." >&2
+    echo "  remediation: drop target/ dirs from landed worktrees —" >&2
+    echo "    du -sh */target | sort -hr        # the usual culprits" >&2
+    echo "    rm -rf <landed-worktree>/target" >&2
+    echo "  Better: build in the dev pod, which has 188GB of scratch." >&2
+    exit 2
+}
+
+require_headroom "to start"
+
 # ---------------------------------------------------------------------
 # `-p` states a belief; the tree states a fact
 # ---------------------------------------------------------------------
@@ -308,85 +389,6 @@ if [ "$AUTO" -eq 1 ]; then
     fi
 fi
 
-# DISK FLOOR, before anything compiles.
-#
-# On 2026-08-16 this box ran out of disk mid-`cargo build`. The failure
-# was not a build error: the volume filled, the tool harness could no
-# longer create a file to hold a command's output, and NOTHING would
-# run — not the gate, not `df`, not the cleanup. Recovering it needed a
-# human at a terminal.
-#
-# locomotive.sh has had exactly this check for the CI runner since
-# 2026-08-14 (`min_free_gb`, default 70), written after a full disk
-# surfaced as four unrelated boss-ledger tests failing on "could not
-# extend file" and cost an hour of archaeology. Three hosts run builds
-# — the runner, the dev pod, this box — and only the runner could say
-# "not enough disk" before spending twenty minutes finding out. That
-# asymmetry is the defect (CLAUDE.md 9a), not the number.
-#
-# A FLOOR, not a prediction. A cold workspace build measured ~74GB on
-# the forge host; an incremental one on a warm target is a fraction of
-# that, so a gate floor set at 74 would refuse almost every honest run.
-# 12GB is set where it means something: below it a compile is likely to
-# die partway and take the shell with it, and refusing costs two
-# seconds instead of a wedged machine. It will not catch every
-# too-tight case, and that is stated rather than papered over.
-#
-# The durable fix is not a bigger number: it is building in the dev pod
-# (188GB on node-local scratch, one workspace instead of six worktrees
-# each with their own target/). This is the guard for whichever host
-# ends up running it.
-#
-# AND IT IS CHECKED BEFORE EVERY PHASE, not only at startup. A one-shot
-# precondition cannot catch the failure it was written for: the run
-# STARTS above the floor and then grows a `target/` — 32GB in the
-# 2026-08-16 incident, 81GB on the Mac when this poll was added — so
-# the only reading that matters is the one taken while the build is
-# under way. `check()` is where every phase passes through, which makes
-# it the poll point; the cost is one `df` per phase against a gate whose
-# phases run for minutes.
-#
-# Tripping mid-run EXITS rather than recording a failed check. A gate
-# that keeps going after this consumes the disk it just warned about,
-# and the reported incident is precisely what that costs: the harness
-# could no longer create the file it writes command output into, so
-# `df` and `rm` stopped working too and the failure had disabled its
-# own diagnosis.
-gate_min_free_gb="${BOSS_GATE_MIN_FREE_GB:-12}"
-
-# The free-space reader, overridable ONLY so the poll itself can be
-# tested — a fake that shrinks across calls is a faithful model of the
-# incident, and there is no other way to prove re-evaluation without
-# actually filling a disk.
-gate_avail_gb() {
-    local kb
-    kb="$(${BOSS_GATE_DF_CMD:-df -Pk .} 2>/dev/null | awk 'NR==2 {print $4}')"
-    if [ -z "${kb}" ]; then
-        echo "gate: could not read free space for $(pwd) — refusing rather than guessing." >&2
-        exit 2
-    fi
-    echo $((kb / 1024 / 1024))
-}
-
-# `when` is "to start" or "to continue" — the distinction matters when
-# reading a log: the second means the run itself ate the headroom.
-require_headroom() {
-    local when="$1" avail
-    avail="$(gate_avail_gb)" || exit 2
-    if [ "${avail}" -ge "${gate_min_free_gb}" ]; then
-        return 0
-    fi
-    echo "gate: ${avail}GB free, need ${gate_min_free_gb}GB. Refusing ${when}." >&2
-    echo "  A build that fills this volume does not fail cleanly — it wedges the" >&2
-    echo "  shell, and on 2026-08-16 it stopped even \`df\` from running." >&2
-    echo "  remediation: drop target/ dirs from landed worktrees —" >&2
-    echo "    du -sh */target | sort -hr        # the usual culprits" >&2
-    echo "    rm -rf <landed-worktree>/target" >&2
-    echo "  Better: build in the dev pod, which has 188GB of scratch." >&2
-    exit 2
-}
-
-require_headroom "to start"
 
 FAILED=()
 
