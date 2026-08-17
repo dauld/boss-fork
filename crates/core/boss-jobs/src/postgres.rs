@@ -485,7 +485,18 @@ impl JobsRepository for PgJobs {
                    priority, opened_on, due_on, closed_on, metadata, tags, simulated
             FROM jobs
             WHERE ($1::text IS NULL OR kind = $1)
-              AND ($2::text IS NULL OR status = $2)
+              -- $13 is the terminal retention window. With it, $2 is
+              -- no longer a plain equality: a board wants live packets
+              -- OR recently-closed ones, which is an OR across two
+              -- different columns and cannot be expressed by status
+              -- alone.
+              AND (
+                CASE WHEN $13::date IS NULL
+                     THEN ($2::text IS NULL OR status = $2)
+                     ELSE (status NOT IN ('closed', 'cancelled')
+                           OR closed_on >= $13::date)
+                END
+              )
               AND ($3::text IS NULL OR owner_id = $3)
               AND ($4::text IS NULL OR kind LIKE $4)
               AND ($7::text IS NULL OR owner_id = $7)
@@ -526,6 +537,7 @@ impl JobsRepository for PgJobs {
             .bind(filter.subject_id.as_deref())
             .bind(filter.waiting_on.as_deref())
             .bind(filter.metadata_contains.as_ref())
+            .bind(filter.closed_since)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| JobsError::Storage(e.to_string()))?;
@@ -534,7 +546,13 @@ impl JobsRepository for PgJobs {
             r#"
             SELECT COUNT(*) FROM jobs
             WHERE ($1::text IS NULL OR kind = $1)
-              AND ($2::text IS NULL OR status = $2)
+              AND (
+                CASE WHEN $11::date IS NULL
+                     THEN ($2::text IS NULL OR status = $2)
+                     ELSE (status NOT IN ('closed', 'cancelled')
+                           OR closed_on >= $11::date)
+                END
+              )
               AND ($3::text IS NULL OR owner_id = $3)
               AND ($4::text IS NULL OR kind LIKE $4)
               AND ($5::text IS NULL OR owner_id = $5)
@@ -564,6 +582,7 @@ impl JobsRepository for PgJobs {
         .bind(filter.subject_id.as_deref())
         .bind(filter.waiting_on.as_deref())
         .bind(filter.metadata_contains.as_ref())
+        .bind(filter.closed_since)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| JobsError::Storage(e.to_string()))?;

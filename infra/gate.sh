@@ -377,12 +377,14 @@ check "idempotence-ratchet"      infra/lint/idempotence-ratchet.sh
 check "dispatcher-rules-ratchet" infra/lint/dispatcher-rules-ratchet.sh
 check "schema-converge"          infra/lint/schema-converge.sh
 check "migrations-append-only"   infra/lint/migrations-append-only.sh
+check "migration-numbers-unique"  infra/lint/migration-numbers-unique.sh
 check "no-secrets"               infra/lint/no-secrets.sh
 check "invariant-register"       infra/lint/invariant-register.sh
 check "crate-counts-fresh"       infra/lint/crate-counts-fresh.sh
 check "registry-bump-order"      infra/lint/registry-bump-retires-first.sh
 check "ci-tools-declared"        infra/lint/ci-tools-declared.sh
 check "timers-leave-a-packet"    infra/lint/timers-leave-a-packet.sh
+check "step-plugin-bundle"       infra/lint/step-plugin-bundle-exists.sh
 
 # The frontend type gate. Last, because it is the only check that
 # installs anything, and a Rust-only car should learn about its Rust
