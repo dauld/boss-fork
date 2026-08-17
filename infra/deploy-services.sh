@@ -1426,6 +1426,32 @@ if [[ "$TARGET" == "prod" || "$TARGET" == "both" ]]; then
         # script timers (boss-deploy-confirm) have no binary and SKIP
         # here, which is fine.
         stage_binary "$stem"
+        # POINT THE TIMER AT THE SYSTEM OF RECORD.
+        #
+        # boss-maintenance-wrap.sh defaults to
+        # `BOSS_JOBS_URL:-http://127.0.0.1:7900`, and nothing was
+        # setting it for these units. On boss-gcp that default is the
+        # LEGACY instance, so every nightly maintenance packet has been
+        # opening and closing where nobody looks: measured 2026-08-17,
+        # 7 each of maintenance-backup / -audit-integrity /
+        # -ledger-replay on the local instance and ZERO on the cluster
+        # SoR, while all three timers fired on schedule 18h earlier.
+        #
+        # This is the 2026-08-13 split-brain (incident c4b4a6b0) for
+        # the units that fix missed. The pipeline got hand-written
+        # drop-ins that live on one box and are in no repository; this
+        # writes the same wiring from the tree, so it survives a
+        # rebuild and is visible to a reader.
+        #
+        # The VALUE stays configurable and defaults to local, because
+        # "where is the SoR" is a deployment fact: boss-gcp sets
+        # BOSS_JOBS_URL to the cluster, and a deploy running ON the
+        # cluster correctly leaves it pointing at itself.
+        install -d -m 0755 "/etc/systemd/system/${stem}.service.d"
+        cat > "/etc/systemd/system/${stem}.service.d/jobs-url.conf" <<UNIT
+[Service]
+Environment=BOSS_JOBS_URL=${BOSS_JOBS_URL:-http://127.0.0.1:$(port_of jobs prod)}
+UNIT
         echo "  installed $stem unit + timer"
     done
     systemctl daemon-reload

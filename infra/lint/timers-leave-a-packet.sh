@@ -109,6 +109,32 @@ for row in $rows; do
     fi
 done
 
+# 5. AND THE DEPLOY MUST POINT THEM AT A JOBS API.
+#
+# The four checks above prove a timer opens and completes a packet of a
+# real kind. They cannot see WHERE it writes it, and that turns out to
+# be the difference between visibility and none.
+#
+# boss-maintenance-wrap.sh falls back to
+# `BOSS_JOBS_URL:-http://127.0.0.1:7900`. On a box whose local instance
+# is not the system of record, that default is a silent redirect:
+# measured 2026-08-17, the backup / audit-integrity / ledger-replay
+# timers had fired on schedule for weeks and left 7 packets EACH on
+# boss-gcp's legacy instance and ZERO on the cluster SoR. Every check
+# in this lint passed the whole time. The 2026-08-13 split-brain
+# (incident c4b4a6b0) fixed the pipeline units by hand and missed
+# these.
+#
+# So: the deploy that installs a timer must also write its
+# BOSS_JOBS_URL, from the tree, where a reader can see it.
+if ! grep -q 'BOSS_JOBS_URL=' "$DEPLOY" || ! grep -q 'jobs-url.conf' "$DEPLOY"; then
+    echo "timers-leave-a-packet: deploy-services.sh installs timers but writes no" >&2
+    echo "    BOSS_JOBS_URL drop-in for them, so boss-maintenance-wrap.sh falls back to" >&2
+    echo "    127.0.0.1 — which on this deployment is not the system of record. Every" >&2
+    echo "    nightly packet would open and close where nobody is looking." >&2
+    problems=$((problems + 1))
+fi
+
 if [ "$problems" -gt 0 ]; then
     echo "" >&2
     echo "  $problems timer(s) without working Job visibility." >&2
