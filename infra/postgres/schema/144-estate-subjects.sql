@@ -1,4 +1,4 @@
--- 142-estate-subjects.sql — BOSS's own substrate, as Subjects.
+-- 144-estate-subjects.sql — BOSS's own substrate, as Subjects.
 --
 -- WHY. BOSS models the brewery's physical world — locations, assets,
 -- vendors — as Subjects and reasons about it. It models its OWN
