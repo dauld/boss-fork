@@ -389,6 +389,57 @@ require_headroom() {
 require_headroom "to start"
 
 FAILED=()
+# Every check and how it went, so the receipt can say what RAN rather
+# than only what broke.
+RAN=()
+
+# ---------------------------------------------------------------------
+# The receipt
+# ---------------------------------------------------------------------
+# A car's `gate` step is free text, so "the gate was green" has always
+# been an assertion the protocol takes on trust. On 2026-08-17 a car
+# asserted `infra/gate.sh --auto green` while its crate did not compile,
+# and the train it boarded went red twice (packet 742d1faa).
+#
+# This writes down what actually happened, in a form the author did not
+# type: the mode, the commit, the host, whether CI markers were set, the
+# free space, and every check with its result. It is evidence, not
+# enforcement — nothing here can stop someone pasting a fiction into the
+# step — but it makes the honest thing the easy thing, and it records
+# the one fact that keeps catching us out: WHERE the gate ran. Two of
+# today's reds were "passed on my machine, failed on the runner",
+# and neither prose field would have shown that.
+GATE_RECEIPT="${BOSS_GATE_RECEIPT:-.gate-receipt.json}"
+
+write_receipt() {
+    local verdict="$1" mode checks="" first=1 entry name result
+    if [ "$AUTO" -eq 1 ]; then mode="auto"
+    elif [ ${#NAMED[@]} -gt 0 ]; then mode="scoped"
+    else mode="full"; fi
+    for entry in ${RAN+"${RAN[@]}"}; do
+        name="${entry%:*}"; result="${entry##*:}"
+        [ "$first" -eq 1 ] || checks="${checks},"
+        first=0
+        checks="${checks}{\"name\":\"${name}\",\"result\":\"${result}\"}"
+    done
+    # `ci` is the fact that keeps mattering: a gate run where no CI
+    # marker is set cannot have exercised anything those markers gate.
+    local in_ci=false
+    if [ -n "${CI:-}${GITHUB_ACTIONS:-}${FORGEJO_ACTIONS:-}" ]; then in_ci=true; fi
+    cat > "${GATE_RECEIPT}" <<RECEIPT
+{
+  "verdict": "${verdict}",
+  "mode": "${mode}",
+  "scope": "${NAMED[*]:-}",
+  "head": "$(git rev-parse HEAD 2>/dev/null || echo unknown)",
+  "dirty": $( [ -n "$(git status --porcelain 2>/dev/null)" ] && echo true || echo false ),
+  "host": "$(hostname 2>/dev/null || echo unknown)",
+  "ci": ${in_ci},
+  "free_gb": $(gate_avail_gb),
+  "checks": [${checks}]
+}
+RECEIPT
+}
 
 # Each check runs even if an earlier one failed — a red gate should
 # report every failure it can see, not make the author fix serially.
@@ -400,10 +451,12 @@ check() {
     echo "::group::gate: ${name}"
     if "$@"; then
         echo "::endgroup::"
+        RAN+=("${name}:pass")
     else
         echo "::endgroup::"
         echo "GATE FAIL: ${name}" >&2
         FAILED+=("${name}")
+        RAN+=("${name}:fail")
     fi
 }
 
@@ -475,8 +528,12 @@ check "step-plugin-bundle"       infra/lint/step-plugin-bundle-exists.sh
 check "svelte-check"             infra/lint/svelte-check.sh
 
 if [ "${#FAILED[@]}" -gt 0 ]; then
+    write_receipt "failed"
     echo "" >&2
     echo "gate: ${#FAILED[@]} check(s) failed: ${FAILED[*]}" >&2
+    echo "gate: receipt written to ${GATE_RECEIPT}" >&2
     exit 1
 fi
+write_receipt "green"
 echo "gate: all checks green"
+echo "gate: receipt written to ${GATE_RECEIPT}"
