@@ -81,6 +81,7 @@ struct StepRow {
     sort_order: i32,
     blocked_by: Vec<uuid::Uuid>,
     sign_offs_required: serde_json::Value,
+    assurance_required: Option<String>,
     sign_offs: serde_json::Value,
     fields: serde_json::Value,
     completed_on: Option<chrono::NaiveDate>,
@@ -143,6 +144,13 @@ fn row_to_step(r: StepRow) -> Result<Step, JobsError> {
         sort_order: r.sort_order,
         blocked_by: r.blocked_by.into_iter().map(StepId::from_uuid).collect(),
         sign_offs_required: serde_json::from_value(r.sign_offs_required).unwrap_or_default(),
+        // An unrecognised value reads as None — "the kind's floor" —
+        // rather than failing the whole row. A step whose requirement
+        // cannot be parsed is still a step someone needs to see.
+        assurance_required: r
+            .assurance_required
+            .as_deref()
+            .and_then(|v| serde_json::from_value(serde_json::Value::String(v.to_string())).ok()),
         sign_offs: serde_json::from_value(r.sign_offs).unwrap_or_default(),
         fields: serde_json::from_value(r.fields).unwrap_or_default(),
         completed_on: r.completed_on,
@@ -600,10 +608,10 @@ impl JobsRepository for PgJobs {
         let result = sqlx::query(
             r#"
             INSERT INTO steps (id, job_id, kind, title, spec_slug, assignee_id, status, sort_order,
-                               blocked_by, sign_offs_required, sign_offs, fields,
+                               blocked_by, sign_offs_required, assurance_required, sign_offs, fields,
                                completed_on, metadata, notes, step_plugin_version,
                                embedded_job, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $18)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19)
             ON CONFLICT (id) DO NOTHING
             "#,
         )
@@ -617,6 +625,11 @@ impl JobsRepository for PgJobs {
         .bind(step.sort_order)
         .bind(blocked_by_uuids(&step.blocked_by))
         .bind(serde_json::to_value(&step.sign_offs_required).unwrap_or_default())
+        .bind(
+            step.assurance_required
+                .and_then(|a| serde_json::to_value(a).ok())
+                .and_then(|v| v.as_str().map(str::to_string)),
+        )
         .bind(serde_json::to_value(&step.sign_offs).unwrap_or_default())
         .bind(serde_json::to_value(&step.fields).unwrap_or_default())
         .bind(step.completed_on)
@@ -646,7 +659,7 @@ impl JobsRepository for PgJobs {
 
     async fn get_step(&self, id: &StepId) -> Result<Option<Step>, JobsError> {
         let row = sqlx::query_as::<_, StepRow>(
-            "SELECT id, job_id, kind, title, spec_slug, assignee_id, status, sort_order, blocked_by, sign_offs_required, sign_offs, fields, completed_on, metadata, notes, step_plugin_version, embedded_job FROM steps WHERE id = $1",
+            "SELECT id, job_id, kind, title, spec_slug, assignee_id, status, sort_order, blocked_by, sign_offs_required, assurance_required, sign_offs, fields, completed_on, metadata, notes, step_plugin_version, embedded_job FROM steps WHERE id = $1",
         )
         .bind(*id.inner().as_uuid())
         .fetch_optional(&self.pool)
@@ -847,7 +860,7 @@ impl JobsRepository for PgJobs {
 
     async fn list_steps(&self, job_id: &JobId) -> Result<Vec<Step>, JobsError> {
         let rows = sqlx::query_as::<_, StepRow>(
-            "SELECT id, job_id, kind, title, spec_slug, assignee_id, status, sort_order, blocked_by, sign_offs_required, sign_offs, fields, completed_on, metadata, notes, step_plugin_version, embedded_job FROM steps WHERE job_id = $1 ORDER BY sort_order",
+            "SELECT id, job_id, kind, title, spec_slug, assignee_id, status, sort_order, blocked_by, sign_offs_required, assurance_required, sign_offs, fields, completed_on, metadata, notes, step_plugin_version, embedded_job FROM steps WHERE job_id = $1 ORDER BY sort_order",
         )
         .bind(*job_id.inner().as_uuid())
         .fetch_all(&self.pool)
@@ -868,7 +881,7 @@ impl JobsRepository for PgJobs {
         // (opened_on, sort_order) for a stable executor queue.
         let rows = sqlx::query_as::<_, AssignmentRowSql>(
             "SELECT s.id, s.job_id, s.kind, s.title, s.spec_slug, s.assignee_id, s.status, \
-                    s.sort_order, s.blocked_by, s.sign_offs_required, s.sign_offs, \
+                    s.sort_order, s.blocked_by, s.sign_offs_required, s.assurance_required, s.sign_offs, \
                     s.fields, s.completed_on, s.metadata, s.notes, \
                     s.step_plugin_version, s.embedded_job, \
                     j.title AS job_title, j.due_on, j.kind AS workflow, j.subject_kind, j.subject_id, j.priority, \
@@ -916,7 +929,7 @@ impl JobsRepository for PgJobs {
         // every assigned step, decoupled from who assigned it.
         let rows = sqlx::query_as::<_, AssignmentRowSql>(
             "SELECT s.id, s.job_id, s.kind, s.title, s.spec_slug, s.assignee_id, s.status, \
-                    s.sort_order, s.blocked_by, s.sign_offs_required, s.sign_offs, \
+                    s.sort_order, s.blocked_by, s.sign_offs_required, s.assurance_required, s.sign_offs, \
                     s.fields, s.completed_on, s.metadata, s.notes, \
                     s.step_plugin_version, s.embedded_job, \
                     j.title AS job_title, j.due_on, j.kind AS workflow, j.subject_kind, j.subject_id, j.priority, \
