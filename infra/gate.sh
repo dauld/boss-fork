@@ -384,6 +384,7 @@ check "crate-counts-fresh"       infra/lint/crate-counts-fresh.sh
 check "registry-bump-order"      infra/lint/registry-bump-retires-first.sh
 check "ci-tools-declared"        infra/lint/ci-tools-declared.sh
 check "timers-leave-a-packet"    infra/lint/timers-leave-a-packet.sh
+check "step-plugin-bundle"       infra/lint/step-plugin-bundle-exists.sh
 
 # The frontend type gate. Last, because it is the only check that
 # installs anything, and a Rust-only car should learn about its Rust

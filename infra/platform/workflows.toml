@@ -383,7 +383,24 @@ fields = [
 
 [[workflow.step]]
 title = "review"
-kind = "task"
+# `correction-verdict`, not `task` — this step has a custom Step UX
+# (infra/step-plugins/correction-verdict.js, registered by migration
+# 146). David, with four of these parked in his queue: "The UX for the
+# corrections is hard for me to understand the question and trade-off."
+#
+# He was right, and structurally so. As a bare `task` the card read
+# "Accept the correction" and offered `verdict` with two enum values
+# whose names do not say what either causes — while the claim, the
+# measurement contradicting it, the method and the location all sat on
+# the PREVIOUS step, behind a modal and a metadata dump. The question
+# was on screen; the material to answer it was not.
+#
+# The kind is the only way to reach a plugin: plugins register by kind
+# and the SPA mounts by kind, so registering against `task` would
+# hijack every task step in the system. Nothing else about the gate
+# changes — the Rust StepRegistry is permissive for kinds it does not
+# know, and the completion contract still comes from the `fields` below.
+kind = "correction-verdict"
 ready_when = "steps.evidence.done"
 title_template = "Accept the correction"
 authority_role = "platform-admin"
