@@ -39,8 +39,16 @@ fn run(cargo_home: &Path, args: &[&str]) -> (bool, String) {
         .args(args)
         .env("CARGO_HOME", cargo_home)
         .env_remove("CARGO_TARGET_DIR")
+        // EVERY marker the script's CI guard reads. Missing one is not
+        // a cosmetic slip: on 2026-08-17 this helper cleared `CI` and
+        // `GITHUB_ACTIONS` but not `FORGEJO_ACTIONS`, so three of these
+        // tests passed on a laptop and reddened train e19759ce the
+        // moment they ran on the forge runner — where the script
+        // correctly refused, against its own test suite. The list is
+        // pinned below so it cannot drift from the script again.
         .env_remove("CI")
         .env_remove("GITHUB_ACTIONS")
+        .env_remove("FORGEJO_ACTIONS")
         .current_dir(repo_root())
         .output()
         .expect("run dev-shared-target.sh");
@@ -137,5 +145,42 @@ fn it_refuses_to_run_in_ci() {
     assert!(
         String::from_utf8_lossy(&out.stderr).contains("refusing to run in CI"),
         "must say why"
+    );
+}
+
+/// The helper above must clear exactly the variables the script's CI
+/// guard reads — a fact that lives in two files and cannot be
+/// collapsed, so CLAUDE.md 9a says pin it. Reads the guard line out of
+/// the script and checks every `${VAR:-}` it tests is one this file
+/// removes. Named the offender when it fails.
+#[test]
+fn the_helper_clears_every_ci_marker_the_script_checks() {
+    let script = std::fs::read_to_string(repo_root().join("infra/dev-shared-target.sh"))
+        .expect("read dev-shared-target.sh");
+    let guard = script
+        .lines()
+        .find(|l| l.trim_start().starts_with("if [ -n \"${CI:-}\""))
+        .expect("the CI guard line is still recognisable");
+
+    let mut checked: Vec<String> = Vec::new();
+    let mut rest = guard;
+    while let Some(i) = rest.find("${") {
+        rest = &rest[i + 2..];
+        if let Some(j) = rest.find(":-}") {
+            checked.push(rest[..j].to_string());
+        }
+    }
+    assert!(!checked.is_empty(), "parsed no variables out of: {guard}");
+
+    const CLEARED: [&str; 3] = ["CI", "GITHUB_ACTIONS", "FORGEJO_ACTIONS"];
+    let missed: Vec<&String> = checked
+        .iter()
+        .filter(|v| !CLEARED.contains(&v.as_str()))
+        .collect();
+    assert!(
+        missed.is_empty(),
+        "the script's CI guard reads {missed:?}, which `run()` does not clear — \
+         add them to CLEARED and to the .env_remove calls, or these tests will \
+         pass locally and fail on a runner that sets them"
     );
 }
