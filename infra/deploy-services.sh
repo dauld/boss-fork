@@ -1066,7 +1066,18 @@ case "$MODE" in
     probe)
         echo "==> strict health probes (env=$TARGET)"
         run_probes "$TARGET"
-        if [[ "$TARGET" == "prod" || "$TARGET" == "both" ]]; then
+        # RESOLVED ONCE, UNCONDITIONALLY, and used twice: the timer drop-in
+# below and this script's own boss-step.sh call at the end. Both
+# helpers now REFUSE without it — they used to default to 127.0.0.1,
+# which is how nightly maintenance packets spent weeks landing on a
+# non-authoritative instance — so the deploy must state the answer
+# rather than let each caller guess it separately. Deliberately OUTSIDE
+# the prod-only block: the bookkeeping call at the end runs on every
+# target, and a deploy that skipped the timer section would otherwise
+# leave it unset.
+export BOSS_JOBS_URL="${BOSS_JOBS_URL:-http://127.0.0.1:$(port_of jobs prod)}"
+
+if [[ "$TARGET" == "prod" || "$TARGET" == "both" ]]; then
             probe_front_door
         fi
         if (( ${#PROBE_FAILED[@]} > 0 )); then
@@ -1450,7 +1461,7 @@ if [[ "$TARGET" == "prod" || "$TARGET" == "both" ]]; then
         install -d -m 0755 "/etc/systemd/system/${stem}.service.d"
         cat > "/etc/systemd/system/${stem}.service.d/jobs-url.conf" <<UNIT
 [Service]
-Environment=BOSS_JOBS_URL=${BOSS_JOBS_URL:-http://127.0.0.1:$(port_of jobs prod)}
+Environment=BOSS_JOBS_URL=${BOSS_JOBS_URL}
 UNIT
         echo "  installed $stem unit + timer"
     done

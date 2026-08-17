@@ -135,6 +135,27 @@ if ! grep -q 'BOSS_JOBS_URL=' "$DEPLOY" || ! grep -q 'jobs-url.conf' "$DEPLOY"; 
     problems=$((problems + 1))
 fi
 
+# 6. AND NEITHER HELPER MAY CARRY A LOCALHOST DEFAULT.
+#
+# The drop-in above is the belt; this is the braces. A default of
+# 127.0.0.1 in boss-maintenance-wrap.sh or boss-step.sh makes a missing
+# BOSS_JOBS_URL look like a working configuration, which is exactly how
+# 21 nightly packets landed on a non-authoritative instance without one
+# check in this file noticing. If the wiring is ever dropped again, the
+# helpers must FAIL rather than quietly pick somewhere plausible.
+for helper in infra/boss-maintenance-wrap.sh infra/boss-step.sh; do
+    # Comment lines are exempt: the refusal blocks quote the old
+    # default to explain what they replaced, and a lint that cannot
+    # tell code from prose would forbid documenting the fix.
+    if grep -v '^[[:space:]]*#' "$helper" 2>/dev/null | grep -q 'BOSS_JOBS_URL:-http'; then
+        echo "timers-leave-a-packet: $helper still defaults BOSS_JOBS_URL to a host." >&2
+        echo "    A maintenance tool with no system of record configured must refuse," >&2
+        echo "    not guess: a failed unit is noticed, a packet in the wrong database" >&2
+        echo "    is not." >&2
+        problems=$((problems + 1))
+    fi
+done
+
 if [ "$problems" -gt 0 ]; then
     echo "" >&2
     echo "  $problems timer(s) without working Job visibility." >&2
