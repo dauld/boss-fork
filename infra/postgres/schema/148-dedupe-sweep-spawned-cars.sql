@@ -47,8 +47,29 @@ UPDATE event_kinds
  WHERE kind_pattern = 'jobs.job.closed'
    AND NOT payload_fields @> '[{"name": "subject_id"}]'::jsonb;
 
+-- RETIRE v1 BEFORE INSERTING v2. `dispatcher_rules_one_active_per_name`
+-- (41-dispatcher.sql) is a UNIQUE index on `name` WHERE status =
+-- 'active', so only one version of a rule may be active at a time.
+-- Inserting v2 as active while v1 still is violates it and rolls the
+-- whole migration back:
+--
+--   ERROR: duplicate key value violates unique constraint
+--          "dispatcher_rules_one_active_per_name"
+--   DETAIL: Key (name)=(spawn-car-on-sweep-remediated) already exists.
+--
+-- Caught by CI on PR 77, which is the one place it could be caught:
+-- the failure needs a database with v1 already applied, and the
+-- statements are individually valid, so neither `bash -n` nor reading
+-- the file finds it. There is no window where the rule is missing —
+-- migrate.sh runs the file in ONE transaction, so the retire and the
+-- insert commit together.
+UPDATE dispatcher_rules
+   SET status = 'retired'
+ WHERE name = 'spawn-car-on-sweep-remediated'
+   AND version = 1;
+
 -- v2: same spawn, now guarded, and recording the key it dedupes on.
--- Append-only — v1 stays for anything admitted under it.
+-- Append-only — v1's row stays for anything admitted under it.
 INSERT INTO dispatcher_rules
     (name, version, status, on_event, when_expr, do_steps,
      delay, schedule_cadence, schedule_anchor, schedule_calendar)
@@ -58,8 +79,3 @@ VALUES
    '[{"handler":"jobs.spawn","args":{"kind":"\"ship-a-change\"","subject_kind":"\"custom\"","subject":"id","title":"title","metadata.backlog_item":"id","metadata.sweep_target":"subject_id"}}]'::jsonb,
    NULL, NULL, NULL, NULL)
 ON CONFLICT (name, version) DO NOTHING;
-
-UPDATE dispatcher_rules
-   SET status = 'retired'
- WHERE name = 'spawn-car-on-sweep-remediated'
-   AND version = 1;
