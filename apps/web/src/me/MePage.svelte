@@ -35,6 +35,7 @@
   import PacketCard from '@boss/web-kit/ui/PacketCard.svelte';
   import PageHeader from '@boss/web-kit/ui/PageHeader.svelte';
   import Section from '@boss/web-kit/ui/Section.svelte';
+  import DecideModal from './DecideModal.svelte';
 
   // The session rune exposes the current user. The fetch effect
   // tracks exactly (id, role) — the two halves of the lens query:
@@ -136,6 +137,20 @@
     };
   });
 
+  // The verdict being decided in the modal (feedback 0ab5fa3a). One at
+  // a time by construction; closing without deciding changes nothing.
+  let deciding = $state<AssignmentRow | null>(null);
+
+  // The step reached a terminal status inside the modal: the row is no
+  // longer a verdict, so refetch the queues. The modal stays up — the
+  // surface is showing its receipt — and Close hands back a list the
+  // decided row has already left.
+  async function onDecided() {
+    if (userId && userRole) {
+      queues = await fetchMyDay(userId, userRole);
+    }
+  }
+
   // The claim hop. A 409 names the winner — losing a race is
   // ordinary queue life, so it reads as information, not an error.
   async function onClaim(row: AssignmentRow) {
@@ -234,7 +249,17 @@
         {:else}
           <div class="myday-jobs-list">
             {#each shown.verdicts as row (row.step.id)}
-              <PacketCard card={assignmentPacket(row)} />
+              <!-- Decide beside the card, the same grammar as Claim:
+                   the card is the packet, the button is the queue
+                   mechanic. It opens the step's real surface in a
+                   modal, so a docket of verdicts is decide → next
+                   without leaving the queue (feedback 0ab5fa3a). -->
+              <div class="myday-grab-row">
+                <PacketCard card={assignmentPacket(row)} />
+                <button class="myday-claim-btn" onclick={() => (deciding = row)}>
+                  Decide
+                </button>
+              </div>
             {/each}
           </div>
         {/if}
@@ -414,6 +439,15 @@
       </Section>
     </div>
   </div>
+
+  {#if deciding}
+    <DecideModal
+      jobId={deciding.job_id}
+      stepId={deciding.step.id}
+      onClose={() => (deciding = null)}
+      {onDecided}
+    />
+  {/if}
 {/if}
 
 <style>
