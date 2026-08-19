@@ -23,6 +23,12 @@ kind: CronJob
 metadata:
   name: boss-search-reindex
   namespace: boss
+  labels:
+    # Every in-cluster maintenance chore carries this label and names
+    # its container `chore`: cluster-deploy-runner pins the deployed
+    # image on the whole set in one selector, so adding a chore is a
+    # manifest, never a runner edit.
+    boss-chore: "true"
 spec:
   schedule: "*/10 * * * *"
   concurrencyPolicy: Forbid
@@ -35,7 +41,7 @@ spec:
         spec:
           restartPolicy: Never
           containers:
-            - name: reindex
+            - name: chore
               image: 10.20.0.15:3000/david/boss:latest
               command: ["/bin/bash", "-c"]
               args:
