@@ -140,6 +140,12 @@ fi
 $K set image -n boss deploy/boss "boss=$REGISTRY:$HEAD"
 $K patch deploy boss -n boss --type=json \
     -p "[{\"op\":\"replace\",\"path\":\"/spec/template/spec/initContainers/0/image\",\"value\":\"$REGISTRY:$HEAD\"}]"
+# CronJob chores run the same build as the deployment. `set image` on
+# a deploy does not touch CronJobs, so each one is pinned here — a
+# chore running a stale image is exactly the split this repo keeps
+# paying for. `|| true`: a manifest not yet applied on this cluster
+# must not fail the whole converge.
+$K set image -n boss cronjob/boss-search-reindex "reindex=$REGISTRY:$HEAD" || true
 $K rollout status deploy/boss -n boss --timeout=420s
 
 echo "$HEAD" > "$STAMP_FILE"
