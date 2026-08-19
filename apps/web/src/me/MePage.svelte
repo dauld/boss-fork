@@ -85,13 +85,15 @@
   let protocol = $state<string | null>(null);
   const protocols = $derived(protocolCounts(queues));
   const shown = $derived({
+    verdicts: filterByProtocol(queues?.verdicts ?? [], protocol),
     mine: filterByProtocol(queues?.mine ?? [], protocol),
     upForGrabs: filterByProtocol(queues?.upForGrabs ?? [], protocol),
     notMineToDo: filterByProtocol(queues?.notMineToDo ?? [], protocol),
     inFlightElsewhere: filterByProtocol(queues?.inFlightElsewhere ?? [], protocol),
   });
   const totalShown = $derived(
-    shown.mine.length +
+    shown.verdicts.length +
+      shown.mine.length +
       shown.upForGrabs.length +
       shown.notMineToDo.length +
       shown.inFlightElsewhere.length,
@@ -220,6 +222,24 @@
     {/if}
 
     <div class="me-grid">
+      <!-- Verdicts first (d598681f, accepted 2026-08-19): the steps
+           that need YOUR decision — sign-offs, reviews, corrections —
+           separated from work you merely own, because 47 rows of
+           "mine" made the two indistinguishable. -->
+      <Section title="Yours to decide" wide>
+        {#if loading}
+          <div class="myday-loading">Loading…</div>
+        {:else if shown.verdicts.length === 0}
+          <div class="myday-empty">No verdicts waiting on you.</div>
+        {:else}
+          <div class="myday-jobs-list">
+            {#each shown.verdicts as row (row.step.id)}
+              <PacketCard card={assignmentPacket(row)} />
+            {/each}
+          </div>
+        {/if}
+      </Section>
+
       <Section title="My queue" wide>
         {#if loading}
           <div class="myday-loading">Loading your queue…</div>
