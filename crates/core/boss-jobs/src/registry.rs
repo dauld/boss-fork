@@ -529,16 +529,52 @@ fn ship_a_change_spec() -> WorkflowSpec {
             }],
             ..Default::default()
         },
+        // Merged is not done. David, 2026-08-19, after a day of
+        // "changes are done that are not visible in my UI experience":
+        // *"Since I am using 'prod', I should have the definitive view
+        // and proof that the change is fully deployed, which should be
+        // the happy path terminal outcome."* The step's contract is
+        // proof AT THE CONSUMING LAYER of the deployed system — a
+        // browser check (infra/uxprobe) for anything with a surface,
+        // endpoint/log evidence for anything without one. `verified`
+        // is required at done so the proof is on the record, and
+        // `method` names which kind of proof it was.
+        //
+        // Same trigger the terminal used to fire on: the conductor (or
+        // a person) observed the merge. The terminal below now waits
+        // for the proof instead.
+        StepSpec {
+            title: "proven".into(),
+            kind: "task".into(),
+            ready_when: "steps.review.done AND job.metadata.merged = \"true\"".into(),
+            title_template: "Proven in prod".into(),
+            authority_role: Some("platform-admin".into()),
+            fields: vec![
+                boss_core::job::StepField {
+                    name: "verified".into(),
+                    field_type: "string".into(),
+                    required: true,
+                },
+                boss_core::job::StepField {
+                    name: "method".into(),
+                    field_type: "browser|api|log".into(),
+                    required: false,
+                },
+            ],
+            ..Default::default()
+        },
         StepSpec {
             title: "merged".into(),
             kind: "outcome".into(),
-            // BOTH halves, same shape as `abandoned` below and for the
-            // same reason: the dispatcher completes any ready
-            // terminal, so gated on `review.done` alone this fired the
-            // moment review completed — Jobs read "merged" while their
-            // PR was still open. The marker is set by whatever
-            // OBSERVED the merge: the train conductor, or a person.
-            ready_when: "steps.review.done AND job.metadata.merged = \"true\"".into(),
+            // The happy terminal fires on the PROOF, not the merge —
+            // the outcome value stays "merged" so every consumer of
+            // the close marker (the feedback obligation above all)
+            // keeps matching, and now fires only once the change is
+            // verified where the operator actually lives. The
+            // conductor's own bookkeeping is untouched: it still
+            // completes `review` and sets the merge marker, and the
+            // packet then waits at `proven` instead of closing.
+            ready_when: "steps.proven.done".into(),
             title_template: "Merged".into(),
             metadata_defaults: serde_json::json!({ "outcome_kind": "completed" }),
             terminal: Some(Terminal {
@@ -5327,22 +5363,44 @@ mod tests {
         // The dispatcher completes any ready terminal, so an outcome
         // gated on `steps.review.done` alone fires when review
         // completes — Job 606b40fb read "merged" while its PR was
-        // still open. The marker is what the conductor (or a person)
-        // sets when the merge has actually happened.
+        // still open. The merge-evidence gate now lives on `proven`
+        // (the terminal fires on the PROOF, David 2026-08-19:
+        // "merged" must mean visible in prod, not landed on main),
+        // so this guard follows it: the chain terminal ← proven ←
+        // merge marker must be unbroken, or the dispatcher closes
+        // Jobs on review completion again.
         let kinds = platform_workflows();
         let ship = kinds
             .iter()
             .find(|k| k.kind == "ship-a-change")
             .expect("ship-a-change present");
+        let proven = ship
+            .steps
+            .iter()
+            .find(|s| s.title == "proven")
+            .expect("proven step present");
+        assert!(
+            proven.ready_when.contains("job.metadata.merged"),
+            "proven must wait for merge evidence; ready_when = {:?}",
+            proven.ready_when
+        );
         let merged = ship
             .steps
             .iter()
             .find(|s| s.title == "merged")
             .expect("merged outcome present");
         assert!(
-            merged.ready_when.contains("job.metadata.merged"),
-            "merged must wait for merge evidence; ready_when = {:?}",
+            merged.ready_when.contains("steps.proven.done"),
+            "the terminal must wait for the prod proof; ready_when = {:?}",
             merged.ready_when
+        );
+        // The proof itself cannot evaporate into a completed step.
+        assert!(
+            proven
+                .fields
+                .iter()
+                .any(|f| f.name == "verified" && f.required),
+            "proven must require the `verified` evidence at done"
         );
     }
 
