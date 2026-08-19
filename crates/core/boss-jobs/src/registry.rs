@@ -1540,7 +1540,22 @@ fn user_feedback_spec() -> WorkflowSpec {
             metadata_defaults: serde_json::json!({ "disposition": "resolved" }),
             ..branch("investigate", "Reproduce and investigate", "reproduce")
         },
-        branch("design-review", "Decide the design", "design"),
+        // v11 (David, 0ab5fa3a, accepted 2026-08-19): the design
+        // decision is kind `answer-question`, not `task`. Browser-
+        // measured on v10: a task with no declared fields renders the
+        // generic surface, whose whole decision affordance was one
+        // Start button — no verdict, no response, nowhere to record
+        // WHAT was decided. `answer-question` is the platform's
+        // question-and-response contract (verdict + answer required at
+        // done), it lands in My Day's "Yours to decide" queue, and its
+        // plugin renders the brief + buttons + proposed answer. The
+        // slug stays `design-review`, so the `closed` terminal and the
+        // car-merge obligation keep matching; that obligation carries
+        // the required fields via its rule row's `done_metadata` arg.
+        StepSpec {
+            kind: "answer-question".into(),
+            ..branch("design-review", "Decide the design", "design")
+        },
         branch("build", "Build the change", "build"),
         branch("needs-info", "Waiting on the reporter", "needs-info"),
         closing_branch(
@@ -4390,6 +4405,27 @@ mod tests {
                         f.name.clone(),
                         serde_json::Value::String(sample.to_string()),
                     );
+                }
+            }
+            // …and what the KIND's own surface collects. A StepType's
+            // required fields are the kind's completion contract, and
+            // the kind's surface (plugin or platform) is what asks for
+            // them — v11's `answer-question` design-review collects
+            // verdict + answer through its own form, exactly like the
+            // approval Workflow's decide step. Only spec-declared
+            // fields were simulated before, which made any kind with
+            // its own required fields read as "can never complete".
+            if let Some(st) = registry.get(&s.kind) {
+                for f in st.fields.iter().filter(|f| f.required) {
+                    let sample = f.field_type.split('|').next().unwrap_or("x");
+                    if let serde_json::Value::Object(m) = &mut metadata
+                        && !m.contains_key(f.name)
+                    {
+                        m.insert(
+                            f.name.to_string(),
+                            serde_json::Value::String(sample.to_string()),
+                        );
+                    }
                 }
             }
 
