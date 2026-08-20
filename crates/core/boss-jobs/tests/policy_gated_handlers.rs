@@ -964,7 +964,10 @@ async fn a_stale_presence_header_downgrades_to_session_and_refuses() {
     let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body["produced"], "session");
     assert!(
-        body["detail"].as_str().unwrap_or_default().contains("stale"),
+        body["detail"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("stale"),
         "the refusal must name staleness: {}",
         body["detail"]
     );

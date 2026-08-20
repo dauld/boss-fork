@@ -106,10 +106,9 @@ pub async fn inject_role_headers(
         if let Some(ticket) = ticket {
             req.headers_mut()
                 .remove(boss_gateway::passkey::TICKET_HEADER);
-            if let Some(hdr) = boss_gateway::passkey::presence_header_from_ticket(
-                &ticket,
-                &state.session_key,
-            ) && let Ok(val) = axum::http::HeaderValue::from_str(&hdr)
+            if let Some(hdr) =
+                boss_gateway::passkey::presence_header_from_ticket(&ticket, &state.session_key)
+                && let Ok(val) = axum::http::HeaderValue::from_str(&hdr)
             {
                 req.headers_mut()
                     .insert(boss_gateway::passkey::PRESENCE_HEADER, val);

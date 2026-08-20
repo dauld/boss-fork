@@ -49,7 +49,12 @@ pub struct WebauthnState {
 
 /// Platform machinery only — see the module doc for why this cannot
 /// be open to ordinary sessions even behind the gateway.
-fn operator_gate(user: &boss_policy::User) -> Result<(), Response> {
+/// Small error value for helper Results (clippy::result_large_err —
+/// Response is a big payload and refusals are cold paths); converted
+/// at the handler boundary.
+type ErrResp = (StatusCode, &'static str);
+
+fn operator_gate(user: &boss_policy::User) -> Result<(), ErrResp> {
     if user.role == "platform-admin" {
         Ok(())
     } else {
@@ -57,8 +62,7 @@ fn operator_gate(user: &boss_policy::User) -> Result<(), Response> {
             StatusCode::FORBIDDEN,
             "webauthn storage is platform machinery — enrolment and assertions go \
              through the gateway's /api/auth/passkey ceremony",
-        )
-            .into_response())
+        ))
     }
 }
 
@@ -88,13 +92,12 @@ fn b64(bytes: &[u8]) -> String {
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
-fn unb64(field: &str, s: &str) -> Result<Vec<u8>, Response> {
+fn unb64(field: &str, s: &str) -> Result<Vec<u8>, (StatusCode, String)> {
     URL_SAFE_NO_PAD.decode(s).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
             format!("{field} is not base64url-no-pad"),
         )
-            .into_response()
     })
 }
 
@@ -136,7 +139,7 @@ async fn list_credentials(
     Path(employee_id): Path<String>,
 ) -> Response {
     if let Err(r) = operator_gate(&user) {
-        return r;
+        return r.into_response();
     }
     let rows = sqlx::query(
         "SELECT credential_id, public_key, sign_count, label, access_tier,
@@ -175,22 +178,18 @@ async fn register_credential(
     Json(body): Json<RegisterCredentialBody>,
 ) -> Response {
     if let Err(r) = operator_gate(&user) {
-        return r;
+        return r.into_response();
     }
     if !["operator", "user"].contains(&body.access_tier.as_str()) {
-        return (
-            StatusCode::BAD_REQUEST,
-            "access_tier must be operator|user",
-        )
-            .into_response();
+        return (StatusCode::BAD_REQUEST, "access_tier must be operator|user").into_response();
     }
     let cred_id = match unb64("credential_id", &body.credential_id) {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return r.into_response(),
     };
     let pub_key = match unb64("public_key", &body.public_key) {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return r.into_response(),
     };
     let now = now_from(&state.clock).await;
     let res = sqlx::query(
@@ -229,11 +228,11 @@ async fn record_credential_use(
     Json(body): Json<CredentialUsedBody>,
 ) -> Response {
     if let Err(r) = operator_gate(&user) {
-        return r;
+        return r.into_response();
     }
     let cred_id = match unb64("credential_id", &body.credential_id) {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return r.into_response(),
     };
     let now = now_from(&state.clock).await;
     let res = sqlx::query(
@@ -293,7 +292,7 @@ async fn mint_challenge(
     Json(body): Json<MintChallengeBody>,
 ) -> Response {
     if let Err(r) = operator_gate(&user) {
-        return r;
+        return r.into_response();
     }
     if !["register", "authenticate", "presence"].contains(&body.flow.as_str()) {
         return (
@@ -304,7 +303,7 @@ async fn mint_challenge(
     }
     let challenge = match unb64("challenge", &body.challenge) {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return r.into_response(),
     };
     let now = now_from(&state.clock).await;
     let expires = now + chrono::Duration::seconds(body.ttl_seconds.unwrap_or(300));
@@ -345,7 +344,7 @@ async fn consume_challenge(
     Path(id): Path<String>,
 ) -> Response {
     if let Err(r) = operator_gate(&user) {
-        return r;
+        return r.into_response();
     }
     let now = now_from(&state.clock).await;
     let row = sqlx::query(
@@ -361,7 +360,9 @@ async fn consume_challenge(
     match row {
         Ok(Some(r)) => Json(ChallengeOut {
             id,
-            employee_id: r.get::<Option<String>, _>("employee_id").unwrap_or_default(),
+            employee_id: r
+                .get::<Option<String>, _>("employee_id")
+                .unwrap_or_default(),
             challenge: b64(&r.get::<Vec<u8>, _>("challenge")),
             flow: r.get("flow"),
             step_id: r.get("step_id"),
@@ -370,12 +371,13 @@ async fn consume_challenge(
         })
         .into_response(),
         Ok(None) => {
-            let exists =
-                sqlx::query_scalar::<_, i64>("SELECT count(*) FROM webauthn_challenges WHERE id = $1")
-                    .bind(&id)
-                    .fetch_one(state.pool.as_ref())
-                    .await
-                    .unwrap_or(0);
+            let exists = sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM webauthn_challenges WHERE id = $1",
+            )
+            .bind(&id)
+            .fetch_one(state.pool.as_ref())
+            .await
+            .unwrap_or(0);
             if exists > 0 {
                 (StatusCode::GONE, "challenge spent or expired").into_response()
             } else {

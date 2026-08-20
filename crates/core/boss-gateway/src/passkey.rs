@@ -9,9 +9,8 @@
 //! per-step challenge binding.
 //!
 //! Q2's decision, honored literally: the challenge IS the shape hash,
-//! with the replay caveat resolved exactly as recorded —
-//!
-//!     challenge = sha256(shape_hash || ":" || nonce)
+//! with the replay caveat resolved exactly as recorded:
+//! `challenge = sha256(shape_hash || ":" || nonce)`.
 //!
 //! The passkey signature is itself the binding: an assertion cannot be
 //! replayed against a different step (different hash → different
@@ -117,11 +116,11 @@ pub async fn credentials_list(
 ) -> Response {
     let (_sess, employee_id) = match employee_session(&headers, &state.session_key) {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return r.into_response(),
     };
     let rows = match state.stored_passkeys(&employee_id).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return r.into_response(),
     };
     let out: Vec<Value> = rows
         .iter()
@@ -234,20 +233,29 @@ fn session_of(headers: &HeaderMap, key: &[u8]) -> Option<Session> {
 
 /// Employee-bearing session or 401 — guests and unresolved logins
 /// cannot hold credentials.
-fn employee_session(headers: &HeaderMap, key: &[u8]) -> Result<(Session, String), Response> {
-    let sess = session_of(headers, key)
-        .ok_or_else(|| StatusCode::UNAUTHORIZED.into_response())?;
+fn employee_session(headers: &HeaderMap, key: &[u8]) -> Result<(Session, String), ErrResp> {
+    let sess = session_of(headers, key).ok_or_else(|| (StatusCode::UNAUTHORIZED, String::new()))?;
     let emp = sess.employee_id.clone().ok_or_else(|| {
-        (
+        err(
             StatusCode::FORBIDDEN,
             "session resolves to no employee — passkeys bind to employees",
         )
-            .into_response()
     })?;
     Ok((sess, emp))
 }
 
-fn err(status: StatusCode, msg: impl Into<String>) -> Response {
+/// Small error value for helper Results — converted to a Response at
+/// the handler boundary (clippy::result_large_err: Response is a
+/// 128-byte-plus payload and these are cold refusal paths).
+type ErrResp = (StatusCode, String);
+
+fn err(status: StatusCode, msg: impl Into<String>) -> ErrResp {
+    (status, msg.into())
+}
+
+/// The same refusal, already a Response — for direct returns inside
+/// handlers.
+fn err2(status: StatusCode, msg: impl Into<String>) -> Response {
     (status, msg.into()).into_response()
 }
 
@@ -274,7 +282,7 @@ impl PasskeyState {
         rb
     }
 
-    async fn stored_passkeys(&self, employee_id: &str) -> Result<Vec<Value>, Response> {
+    async fn stored_passkeys(&self, employee_id: &str) -> Result<Vec<Value>, ErrResp> {
         let url = format!(
             "{}/api/people/{}/webauthn-credentials",
             self.people_base, employee_id
@@ -287,24 +295,33 @@ impl PasskeyState {
         if !resp.status().is_success() {
             return Err(err(StatusCode::BAD_GATEWAY, "credential lookup failed"));
         }
-        resp.json::<Vec<Value>>()
-            .await
-            .map_err(|e| err(StatusCode::BAD_GATEWAY, format!("credential list malformed: {e}")))
+        resp.json::<Vec<Value>>().await.map_err(|e| {
+            err(
+                StatusCode::BAD_GATEWAY,
+                format!("credential list malformed: {e}"),
+            )
+        })
     }
 
     /// Stored rows carry `public_key` = b64url(serde_json(Passkey)).
     /// Returns the decoded Passkey JSON values ({"cred": ...}).
-    fn passkey_jsons(rows: &[Value]) -> Result<Vec<Value>, Response> {
+    fn passkey_jsons(rows: &[Value]) -> Result<Vec<Value>, ErrResp> {
         rows.iter()
             .map(|r| {
                 let b64 = r["public_key"].as_str().ok_or_else(|| {
                     err(StatusCode::BAD_GATEWAY, "credential row missing public_key")
                 })?;
                 let bytes = URL_SAFE_NO_PAD.decode(b64).map_err(|_| {
-                    err(StatusCode::BAD_GATEWAY, "credential public_key not base64url")
+                    err(
+                        StatusCode::BAD_GATEWAY,
+                        "credential public_key not base64url",
+                    )
                 })?;
                 serde_json::from_slice(&bytes).map_err(|_| {
-                    err(StatusCode::BAD_GATEWAY, "credential public_key not a stored passkey")
+                    err(
+                        StatusCode::BAD_GATEWAY,
+                        "credential public_key not a stored passkey",
+                    )
                 })
             })
             .collect()
@@ -322,13 +339,13 @@ pub async fn register_begin(
 ) -> Response {
     let (sess, employee_id) = match employee_session(&headers, &state.session_key) {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return r.into_response(),
     };
     // Exclude already-registered credentials so an authenticator
     // cannot double-enrol.
     let rows = match state.stored_passkeys(&employee_id).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return r.into_response(),
     };
     let exclude: Option<Vec<webauthn_rs::prelude::CredentialID>> = if rows.is_empty() {
         None
@@ -350,7 +367,7 @@ pub async fn register_begin(
         .start_passkey_registration(user_uuid, &sess.username, &sess.username, exclude)
     {
         Ok(v) => v,
-        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, format!("webauthn: {e}")),
+        Err(e) => return err2(StatusCode::INTERNAL_SERVER_ERROR, format!("webauthn: {e}")),
     };
     // The registration state is the thing that must round-trip; the
     // challenge ledger carries it opaquely (flow=register).
@@ -375,11 +392,11 @@ pub async fn register_begin(
             "options": ccr,
         }))
         .into_response(),
-        Ok(r) => err(
+        Ok(r) => err2(
             StatusCode::BAD_GATEWAY,
             format!("challenge mint failed: {}", r.status()),
         ),
-        Err(e) => err(StatusCode::BAD_GATEWAY, format!("people unreachable: {e}")),
+        Err(e) => err2(StatusCode::BAD_GATEWAY, format!("people unreachable: {e}")),
     }
 }
 
@@ -398,32 +415,50 @@ pub async fn register_finish(
 ) -> Response {
     let (_sess, employee_id) = match employee_session(&headers, &state.session_key) {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return r.into_response(),
     };
     let row = match consume_challenge(&state, &body.challenge_id).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return r.into_response(),
     };
     if row["flow"] != "register" || row["employee_id"] != employee_id.as_str() {
-        return err(StatusCode::FORBIDDEN, "challenge was minted for someone else");
+        return err2(
+            StatusCode::FORBIDDEN,
+            "challenge was minted for someone else",
+        );
     }
     let state_bytes = match row["challenge"]
         .as_str()
         .and_then(|b| URL_SAFE_NO_PAD.decode(b).ok())
     {
         Some(v) => v,
-        None => return err(StatusCode::BAD_GATEWAY, "stored registration state unreadable"),
+        None => {
+            return err2(
+                StatusCode::BAD_GATEWAY,
+                "stored registration state unreadable",
+            );
+        }
     };
     let reg_state: PasskeyRegistration = match serde_json::from_slice(&state_bytes) {
         Ok(v) => v,
-        Err(_) => return err(StatusCode::BAD_GATEWAY, "stored registration state unreadable"),
+        Err(_) => {
+            return err2(
+                StatusCode::BAD_GATEWAY,
+                "stored registration state unreadable",
+            );
+        }
     };
     let passkey = match state
         .webauthn
         .finish_passkey_registration(&body.credential, &reg_state)
     {
         Ok(v) => v,
-        Err(e) => return err(StatusCode::BAD_REQUEST, format!("attestation rejected: {e}")),
+        Err(e) => {
+            return err2(
+                StatusCode::BAD_REQUEST,
+                format!("attestation rejected: {e}"),
+            );
+        }
     };
     let cred_id_b64 = URL_SAFE_NO_PAD.encode(passkey.cred_id().as_ref());
     let passkey_b64 =
@@ -444,17 +479,19 @@ pub async fn register_finish(
         .send()
         .await;
     match store {
-        Ok(r) if r.status().is_success() => {
-            (StatusCode::CREATED, Json(json!({ "credential_id": cred_id_b64 }))).into_response()
-        }
+        Ok(r) if r.status().is_success() => (
+            StatusCode::CREATED,
+            Json(json!({ "credential_id": cred_id_b64 })),
+        )
+            .into_response(),
         Ok(r) if r.status() == reqwest::StatusCode::CONFLICT => {
-            err(StatusCode::CONFLICT, "credential already registered")
+            err2(StatusCode::CONFLICT, "credential already registered")
         }
-        Ok(r) => err(
+        Ok(r) => err2(
             StatusCode::BAD_GATEWAY,
             format!("credential store failed: {}", r.status()),
         ),
-        Err(e) => err(StatusCode::BAD_GATEWAY, format!("people unreachable: {e}")),
+        Err(e) => err2(StatusCode::BAD_GATEWAY, format!("people unreachable: {e}")),
     }
 }
 
@@ -475,7 +512,7 @@ pub async fn assert_begin(
 ) -> Response {
     let (sess, employee_id) = match employee_session(&headers, &state.session_key) {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return r.into_response(),
     };
     // The step's CURRENT content is what the passkey will approve.
     let job_url = format!("{}/api/jobs/{}", state.jobs_base, body.job_id);
@@ -497,35 +534,36 @@ pub async fn assert_begin(
         match resp {
             Ok(r) if r.status().is_success() => match r.json().await {
                 Ok(v) => v,
-                Err(e) => return err(StatusCode::BAD_GATEWAY, format!("job malformed: {e}")),
+                Err(e) => return err2(StatusCode::BAD_GATEWAY, format!("job malformed: {e}")),
             },
-            Ok(r) => return err(StatusCode::BAD_GATEWAY, format!("job fetch: {}", r.status())),
-            Err(e) => return err(StatusCode::BAD_GATEWAY, format!("jobs unreachable: {e}")),
+            Ok(r) => {
+                return err2(
+                    StatusCode::BAD_GATEWAY,
+                    format!("job fetch: {}", r.status()),
+                );
+            }
+            Err(e) => return err2(StatusCode::BAD_GATEWAY, format!("jobs unreachable: {e}")),
         }
     };
     let Some(step) = job["steps"]
         .as_array()
         .and_then(|s| s.iter().find(|s| s["id"] == body.step_id.as_str()))
     else {
-        return err(StatusCode::NOT_FOUND, "no such step on that job");
+        return err2(StatusCode::NOT_FOUND, "no such step on that job");
     };
     let title = step["title"].as_str().unwrap_or_default();
     let metadata = step.get("metadata").cloned().unwrap_or(Value::Null);
     let shape_hash = boss_core::job::step_shape_hash(title, &metadata);
 
-    let nonce = format!(
-        "{}{}",
-        Uuid::new_v4().simple(),
-        Uuid::new_v4().simple()
-    );
+    let nonce = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
     let challenge = presence_challenge(&shape_hash, &nonce);
 
     let rows = match state.stored_passkeys(&employee_id).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return r.into_response(),
     };
     if rows.is_empty() {
-        return err(
+        return err2(
             StatusCode::CONFLICT,
             "no passkey enrolled — enrol one before approving presence-gated steps",
         );
@@ -549,7 +587,7 @@ pub async fn assert_begin(
         .send()
         .await;
     if !matches!(&mint, Ok(r) if r.status().is_success()) {
-        return err(StatusCode::BAD_GATEWAY, "challenge mint failed");
+        return err2(StatusCode::BAD_GATEWAY, "challenge mint failed");
     }
 
     let allow: Vec<Value> = rows
@@ -585,14 +623,17 @@ pub async fn assert_finish(
 ) -> Response {
     let (_sess, employee_id) = match employee_session(&headers, &state.session_key) {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return r.into_response(),
     };
     let row = match consume_challenge(&state, &body.challenge_id).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return r.into_response(),
     };
     if row["flow"] != "presence" || row["employee_id"] != employee_id.as_str() {
-        return err(StatusCode::FORBIDDEN, "challenge was minted for someone else");
+        return err2(
+            StatusCode::FORBIDDEN,
+            "challenge was minted for someone else",
+        );
     }
     let (Some(challenge_b64), Some(step_id), Some(shape_hash), Some(nonce)) = (
         row["challenge"].as_str(),
@@ -600,16 +641,19 @@ pub async fn assert_finish(
         row["shape_hash"].as_str(),
         row["nonce"].as_str(),
     ) else {
-        return err(StatusCode::BAD_GATEWAY, "challenge row missing presence binding");
+        return err2(
+            StatusCode::BAD_GATEWAY,
+            "challenge row missing presence binding",
+        );
     };
 
     let rows = match state.stored_passkeys(&employee_id).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return r.into_response(),
     };
     let passkeys = match PasskeyState::passkey_jsons(&rows) {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return r.into_response(),
     };
     // Build the crate's own AuthenticationState through serde — the
     // documented experts-only seam for a server-supplied challenge.
@@ -628,7 +672,7 @@ pub async fn assert_finish(
         })) {
             Ok(v) => v,
             Err(e) => {
-                return err(
+                return err2(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("authentication state rebuild failed: {e}"),
                 );
@@ -639,7 +683,7 @@ pub async fn assert_finish(
         .finish_passkey_authentication(&body.credential, &auth_state)
     {
         Ok(v) => v,
-        Err(e) => return err(StatusCode::UNAUTHORIZED, format!("assertion rejected: {e}")),
+        Err(e) => return err2(StatusCode::UNAUTHORIZED, format!("assertion rejected: {e}")),
     };
 
     // Advance the sign counter — clone detection lives in the crate,
@@ -673,11 +717,14 @@ pub async fn assert_finish(
 }
 
 /// Consume a challenge row: 410 → replay/too-slow, 404 → never minted.
-async fn consume_challenge(state: &PasskeyState, id: &str) -> Result<Value, Response> {
+async fn consume_challenge(state: &PasskeyState, id: &str) -> Result<Value, ErrResp> {
     let resp = state
         .request(
             reqwest::Method::POST,
-            format!("{}/api/people/presence-challenges/{}/consume", state.people_base, id),
+            format!(
+                "{}/api/people/presence-challenges/{}/consume",
+                state.people_base, id
+            ),
         )
         .send()
         .await
@@ -692,7 +739,10 @@ async fn consume_challenge(state: &PasskeyState, id: &str) -> Result<Value, Resp
             "challenge already spent or expired — begin again",
         )),
         reqwest::StatusCode::NOT_FOUND => Err(err(StatusCode::NOT_FOUND, "unknown challenge")),
-        s => Err(err(StatusCode::BAD_GATEWAY, format!("challenge consume: {s}"))),
+        s => Err(err(
+            StatusCode::BAD_GATEWAY,
+            format!("challenge consume: {s}"),
+        )),
     }
 }
 
@@ -745,9 +795,21 @@ mod tests {
     fn challenge_recipe_is_binding_and_nonce_sensitive() {
         let a = presence_challenge("hash-a", "n1");
         assert_eq!(a.len(), 32, "a sha256 — a valid webauthn challenge length");
-        assert_ne!(a, presence_challenge("hash-b", "n1"), "different content, different challenge");
-        assert_ne!(a, presence_challenge("hash-a", "n2"), "same content, fresh nonce, fresh challenge");
-        assert_eq!(a, presence_challenge("hash-a", "n1"), "deterministic for the row it binds");
+        assert_ne!(
+            a,
+            presence_challenge("hash-b", "n1"),
+            "different content, different challenge"
+        );
+        assert_ne!(
+            a,
+            presence_challenge("hash-a", "n2"),
+            "same content, fresh nonce, fresh challenge"
+        );
+        assert_eq!(
+            a,
+            presence_challenge("hash-a", "n1"),
+            "deterministic for the row it binds"
+        );
     }
 
     #[test]
