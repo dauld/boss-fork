@@ -101,7 +101,40 @@ pub fn passkey_router(state: Arc<PasskeyState>) -> Router {
         .route("/api/auth/passkey/register/finish", post(register_finish))
         .route("/api/auth/passkey/assert/begin", post(assert_begin))
         .route("/api/auth/passkey/assert/finish", post(assert_finish))
+        .route(
+            "/api/auth/passkey/credentials",
+            axum::routing::get(credentials_list),
+        )
         .with_state(state)
+}
+
+/// The browser-safe listing: the session's OWN passkeys, metadata
+/// only (no public keys). The raw people surface is platform
+/// machinery; this is the door the SPA uses.
+pub async fn credentials_list(
+    State(state): State<Arc<PasskeyState>>,
+    headers: HeaderMap,
+) -> Response {
+    let (_sess, employee_id) = match employee_session(&headers, &state.session_key) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let rows = match state.stored_passkeys(&employee_id).await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let out: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            json!({
+                "credential_id": r["credential_id"],
+                "label": r["label"],
+                "registered_at": r["registered_at"],
+                "last_used_at": r["last_used_at"],
+            })
+        })
+        .collect();
+    Json(out).into_response()
 }
 
 /// The challenge recipe, in one place so the begin and any future
@@ -219,11 +252,22 @@ fn err(status: StatusCode, msg: impl Into<String>) -> Response {
 }
 
 impl PasskeyState {
-    /// Machine-token-stamped server-side call. The gateway is a
-    /// trusted caller of people/jobs; these are the same headers the
-    /// proxy path injects.
+    /// Machine-token-stamped server-side call, identifying as the
+    /// gateway's own internal actor. boss-people's webauthn storage
+    /// requires a `platform-admin` caller (its paths are also
+    /// browser-reachable through the /api/people proxy, so it cannot
+    /// trust callers by position) — this identity is how the ceremony
+    /// passes that gate while ordinary proxied sessions are refused.
     fn request(&self, method: reqwest::Method, url: String) -> reqwest::RequestBuilder {
-        let mut rb = self.http.request(method, url);
+        let mut rb = self.http.request(method, url).header(
+            "x-boss-user",
+            json!({
+                "id": "automation:gateway",
+                "role": "platform-admin",
+                "access_tier": "operator",
+            })
+            .to_string(),
+        );
         if let Some(token) = boss_core::machine_token::from_env() {
             rb = rb.header(boss_core::machine_token::HEADER, token);
         }

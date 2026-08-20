@@ -652,7 +652,12 @@ fn build_router(local_auth_state: Option<Arc<LocalAuthState>>) -> axum::Router<A
                 )
                 .route(
                     "/api/auth/passkey/assert/finish",
-                    axum::routing::post(boss_gateway::passkey::assert_finish).with_state(pk),
+                    axum::routing::post(boss_gateway::passkey::assert_finish)
+                        .with_state(pk.clone()),
+                )
+                .route(
+                    "/api/auth/passkey/credentials",
+                    axum::routing::get(boss_gateway::passkey::credentials_list).with_state(pk),
                 )
             }
             Err(e) => {

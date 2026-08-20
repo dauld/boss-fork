@@ -8,11 +8,17 @@
 //! challenge ledger (what was minted, for which step content, and
 //! whether it has been spent).
 //!
-//! These endpoints are internal machinery: the gateway is the only
-//! caller, and the service port is machine-token guarded at the
-//! binary layer. They deliberately do NOT take `CurrentUser` — the
-//! same posture as `scope::bootstrap_by_email`, which the gateway
-//! also calls outside any user session.
+//! These endpoints are internal machinery: the gateway's ceremony is
+//! the only legitimate caller. They cannot rely on that being true —
+//! the gateway also proxies `/api/people/{*rest}` for the SPA, so any
+//! session could reach these paths — and a credential row planted for
+//! someone else is an account takeover. So every handler requires a
+//! `platform-admin` actor: the gateway's server-side ceremony calls
+//! identify as `automation:gateway` with that role, operator tooling
+//! (boss-api) already carries it, and every ordinary proxied session
+//! is refused. Humans never call these directly; they go through the
+//! gateway's `/api/auth/passkey/*` ceremony, which enforces
+//! session-to-employee binding before it ever gets here.
 //!
 //! Bytes (credential ids, public keys, challenges) travel as
 //! base64url-no-pad strings — the same alphabet the browser's
@@ -33,11 +39,27 @@ use sqlx::PgPool;
 use sqlx::Row;
 
 use boss_clock_client::{ClockClient, now_from};
+use boss_policy_client::CurrentUser;
 
 #[derive(Clone)]
 pub struct WebauthnState {
     pub pool: Arc<PgPool>,
     pub clock: Arc<dyn ClockClient>,
+}
+
+/// Platform machinery only — see the module doc for why this cannot
+/// be open to ordinary sessions even behind the gateway.
+fn operator_gate(user: &boss_policy::User) -> Result<(), Response> {
+    if user.role == "platform-admin" {
+        Ok(())
+    } else {
+        Err((
+            StatusCode::FORBIDDEN,
+            "webauthn storage is platform machinery — enrolment and assertions go \
+             through the gateway's /api/auth/passkey ceremony",
+        )
+            .into_response())
+    }
 }
 
 pub fn webauthn_router(pool: PgPool, clock: Arc<dyn ClockClient>) -> Router {
@@ -110,8 +132,12 @@ struct CredentialOut {
 
 async fn list_credentials(
     State(state): State<WebauthnState>,
+    CurrentUser(user): CurrentUser,
     Path(employee_id): Path<String>,
 ) -> Response {
+    if let Err(r) = operator_gate(&user) {
+        return r;
+    }
     let rows = sqlx::query(
         "SELECT credential_id, public_key, sign_count, label, access_tier,
                 registered_at, last_used_at
@@ -144,9 +170,13 @@ async fn list_credentials(
 
 async fn register_credential(
     State(state): State<WebauthnState>,
+    CurrentUser(user): CurrentUser,
     Path(employee_id): Path<String>,
     Json(body): Json<RegisterCredentialBody>,
 ) -> Response {
+    if let Err(r) = operator_gate(&user) {
+        return r;
+    }
     if !["operator", "user"].contains(&body.access_tier.as_str()) {
         return (
             StatusCode::BAD_REQUEST,
@@ -195,8 +225,12 @@ struct CredentialUsedBody {
 
 async fn record_credential_use(
     State(state): State<WebauthnState>,
+    CurrentUser(user): CurrentUser,
     Json(body): Json<CredentialUsedBody>,
 ) -> Response {
+    if let Err(r) = operator_gate(&user) {
+        return r;
+    }
     let cred_id = match unb64("credential_id", &body.credential_id) {
         Ok(v) => v,
         Err(r) => return r,
@@ -255,8 +289,12 @@ struct ChallengeOut {
 
 async fn mint_challenge(
     State(state): State<WebauthnState>,
+    CurrentUser(user): CurrentUser,
     Json(body): Json<MintChallengeBody>,
 ) -> Response {
+    if let Err(r) = operator_gate(&user) {
+        return r;
+    }
     if !["register", "authenticate", "presence"].contains(&body.flow.as_str()) {
         return (
             StatusCode::BAD_REQUEST,
@@ -303,8 +341,12 @@ async fn mint_challenge(
 /// or too slow" from "never minted".
 async fn consume_challenge(
     State(state): State<WebauthnState>,
+    CurrentUser(user): CurrentUser,
     Path(id): Path<String>,
 ) -> Response {
+    if let Err(r) = operator_gate(&user) {
+        return r;
+    }
     let now = now_from(&state.clock).await;
     let row = sqlx::query(
         "UPDATE webauthn_challenges

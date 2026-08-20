@@ -44,6 +44,7 @@ async fn credential_round_trip_and_duplicate_conflict() {
 
     TestRequest::post("/api/people/emp-wa-1/webauthn-credentials")
         .json(&json!({"credential_id": CRED_ID, "public_key": PUB_KEY, "label": "yubikey-a"}))
+        .as_user("automation:gateway", "platform-admin")
         .send(&router)
         .await
         .assert_status(StatusCode::CREATED);
@@ -52,11 +53,13 @@ async fn credential_round_trip_and_duplicate_conflict() {
     // credential is bound to one authenticator forever.
     TestRequest::post("/api/people/emp-wa-1/webauthn-credentials")
         .json(&json!({"credential_id": CRED_ID, "public_key": PUB_KEY}))
+        .as_user("automation:gateway", "platform-admin")
         .send(&router)
         .await
         .assert_status(StatusCode::CONFLICT);
 
     let resp = TestRequest::get("/api/people/emp-wa-1/webauthn-credentials")
+        .as_user("automation:gateway", "platform-admin")
         .send(&router)
         .await;
     resp.assert_status(StatusCode::OK);
@@ -78,17 +81,20 @@ async fn recording_a_use_advances_sign_count_and_last_used() {
 
     TestRequest::post("/api/people/emp-wa-2/webauthn-credentials")
         .json(&json!({"credential_id": CRED_ID, "public_key": PUB_KEY}))
+        .as_user("automation:gateway", "platform-admin")
         .send(&router)
         .await
         .assert_status(StatusCode::CREATED);
 
     TestRequest::post("/api/people/webauthn-credentials/used")
         .json(&json!({"credential_id": CRED_ID, "sign_count": 7}))
+        .as_user("automation:gateway", "platform-admin")
         .send(&router)
         .await
         .assert_status(StatusCode::NO_CONTENT);
 
     let resp = TestRequest::get("/api/people/emp-wa-2/webauthn-credentials")
+        .as_user("automation:gateway", "platform-admin")
         .send(&router)
         .await;
     let creds: serde_json::Value = resp.assert_json();
@@ -111,11 +117,13 @@ async fn presence_challenge_consumes_exactly_once_with_binding() {
             "shape_hash": "abc123",
             "nonce": "6e6f6e6365"
         }))
+        .as_user("automation:gateway", "platform-admin")
         .send(&router)
         .await
         .assert_status(StatusCode::CREATED);
 
     let resp = TestRequest::post("/api/people/presence-challenges/ch-1/consume")
+        .as_user("automation:gateway", "platform-admin")
         .send(&router)
         .await;
     resp.assert_status(StatusCode::OK);
@@ -129,6 +137,7 @@ async fn presence_challenge_consumes_exactly_once_with_binding() {
 
     // Second consumption: the row exists but is spent — 410, not 404.
     TestRequest::post("/api/people/presence-challenges/ch-1/consume")
+        .as_user("automation:gateway", "platform-admin")
         .send(&router)
         .await
         .assert_status(StatusCode::GONE);
@@ -147,16 +156,19 @@ async fn expired_challenge_is_gone_and_unknown_is_not_found() {
             "flow": "authenticate",
             "ttl_seconds": 0
         }))
+        .as_user("automation:gateway", "platform-admin")
         .send(&router)
         .await
         .assert_status(StatusCode::CREATED);
 
     TestRequest::post("/api/people/presence-challenges/ch-exp/consume")
+        .as_user("automation:gateway", "platform-admin")
         .send(&router)
         .await
         .assert_status(StatusCode::GONE);
 
     TestRequest::post("/api/people/presence-challenges/ch-nope/consume")
+        .as_user("automation:gateway", "platform-admin")
         .send(&router)
         .await
         .assert_status(StatusCode::NOT_FOUND);
@@ -176,15 +188,41 @@ async fn bad_flow_and_bad_base64_are_rejected_before_the_db() {
             "challenge": PUB_KEY,
             "flow": "vibes"
         }))
+        .as_user("automation:gateway", "platform-admin")
         .send(&router)
         .await
         .assert_status(StatusCode::BAD_REQUEST);
 
     TestRequest::post("/api/people/emp-wa-5/webauthn-credentials")
         .json(&json!({"credential_id": "not!!base64", "public_key": PUB_KEY}))
+        .as_user("automation:gateway", "platform-admin")
         .send(&router)
         .await
         .assert_status(StatusCode::BAD_REQUEST);
 
     let _ = db;
+}
+
+#[tokio::test]
+async fn an_ordinary_session_is_refused_at_the_storage_door() {
+    let (db, router) = app().await;
+    seed_employee(&db, "emp-wa-6").await;
+
+    // The gateway proxies /api/people/{*rest} for every session, so
+    // these paths are browser-reachable — and a credential row planted
+    // for someone else is an account takeover. Ordinary roles stop
+    // here; the ceremony's session-to-employee binding lives at the
+    // gateway's /api/auth/passkey surface.
+    TestRequest::post("/api/people/emp-wa-6/webauthn-credentials")
+        .json(&json!({"credential_id": CRED_ID, "public_key": PUB_KEY}))
+        .as_user("emp-wa-6", "qa-lead")
+        .send(&router)
+        .await
+        .assert_status(StatusCode::FORBIDDEN);
+
+    TestRequest::get("/api/people/emp-wa-6/webauthn-credentials")
+        .as_user("emp-wa-6", "qa-lead")
+        .send(&router)
+        .await
+        .assert_status(StatusCode::FORBIDDEN);
 }
