@@ -1352,6 +1352,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
+ "base64 0.22.1",
  "boss-assets-client",
  "boss-calendar-client",
  "boss-classes-client",
