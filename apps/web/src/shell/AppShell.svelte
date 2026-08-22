@@ -16,6 +16,7 @@
   import {
     ROUTE_CATALOG,
     type AppId,
+    type CatalogKey,
     type NavItem,
     type NavGroup,
   } from './nav-catalog';
@@ -113,8 +114,8 @@
   // this asserts these two agree — an entry here for a surface the
   // catalog assigns elsewhere is exactly the drift that put pages
   // under the wrong tab before.
-  const APP_SURFACES: Readonly<Partial<Record<AppId, ReadonlyArray<RouteName>>>> = {
-    sales: ['accounts', 'sales', 'shop'],
+  const APP_SURFACES: Readonly<Partial<Record<AppId, ReadonlyArray<CatalogKey>>>> = {
+    sales: ['accounts', 'watchlist', 'sales', 'shop'],
     marketing: ['marketing-assets'],
     support: ['support'],
     service: ['service'],
@@ -126,7 +127,7 @@
     distribution: ['shipping'],
     production: ['products', 'calendar'],
     maintenance: ['catalog', 'assets'],
-    people: ['people'],
+    people: ['people', 'hr'],
   };
 
   // The group header is the department's own label — derived, because
@@ -237,7 +238,7 @@
             {
               label: appGroupLabel(activeApp),
               items: (APP_SURFACES[activeApp] ?? []).map(
-                (r: RouteName) => ROUTE_CATALOG[r],
+                (r: CatalogKey) => ROUTE_CATALOG[r],
               ),
             },
           ],

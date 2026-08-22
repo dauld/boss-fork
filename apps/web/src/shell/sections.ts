@@ -32,11 +32,6 @@ export const HOME_CHROME_SECTIONS: ReadonlyMap<string, string> = new Map([
       'entirely, and search is cross-cutting with no sidebar row',
   ],
   [
-    'hr',
-    'HrPage has no catalog entry or sidebar row; it renders under Home ' +
-      'chrome until a department claims it',
-  ],
-  [
     'manual',
     'the operator manual has no catalog entry or sidebar row; it renders ' +
       'under Home chrome until a department claims it',
@@ -51,7 +46,6 @@ export const SECTION_FOR_ROUTE: Readonly<Record<Route['kind'], string>> = {
   home: 'me',
   search: 'me',
   me: 'me',
-  hr: 'hr',
   manual: 'manual',
   manualSection: 'manual',
 
@@ -65,7 +59,7 @@ export const SECTION_FOR_ROUTE: Readonly<Record<Route['kind'], string>> = {
   asset: 'assets',
   accounts: 'accounts',
   account: 'accounts',
-  watchlist: 'accounts',
+  watchlist: 'watchlist',
   vendors: 'vendors',
   vendor: 'vendors',
   // A purchase order and a vendor invoice are both about a vendor;
@@ -74,6 +68,7 @@ export const SECTION_FOR_ROUTE: Readonly<Record<Route['kind'], string>> = {
   vendorInvoice: 'vendors',
   people: 'people',
   employee: 'people',
+  hr: 'hr',
   parts: 'parts',
   part: 'parts',
   finance: 'finance',

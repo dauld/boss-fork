@@ -60,22 +60,30 @@
     return r;
   }
 
+  // Block tones. Was a pastel Tailwind palette painted for a white
+  // page; on VOID those chips glowed like sticky notes. Retoned as
+  // rgba washes of the house status colors (--ok / --warn / --err /
+  // --signal / --fog / --static — see styles.css :root), foregrounds
+  // as the tokens themselves, following the rgba-wash idiom the rest
+  // of styles.css uses for status backgrounds.
   const AVAIL_COLOR: Record<AvailabilityKind, { bg: string; fg: string }> = {
-    available: { bg: '#dcfce7', fg: '#166534' },
-    pto:       { bg: '#fecaca', fg: '#991b1b' },
-    sick:      { bg: '#fef3c7', fg: '#92400e' },
-    holiday:   { bg: '#e9d5ff', fg: '#6b21a8' },
-    training:  { bg: '#dbeafe', fg: '#1e40af' },
-    blocked:   { bg: '#e7e5e4', fg: '#44403c' },
+    available: { bg: 'rgba(79, 185, 138, 0.16)', fg: 'var(--ok)' },
+    pto:       { bg: 'rgba(226, 104, 92, 0.16)', fg: 'var(--err)' },
+    sick:      { bg: 'rgba(217, 164, 65, 0.16)', fg: 'var(--warn)' },
+    holiday:   { bg: 'rgba(95, 212, 168, 0.16)', fg: 'var(--signal)' },
+    training:  { bg: 'rgba(232, 236, 239, 0.10)', fg: 'var(--fog)' },
+    blocked:   { bg: 'rgba(122, 131, 140, 0.16)', fg: 'var(--static)' },
   };
   const ASSIGN_COLOR: Record<AssignmentKind, { bg: string; fg: string }> = {
-    wo:          { bg: '#fef3c7', fg: '#78350f' },
-    pm:          { bg: '#fed7aa', fg: '#9a3412' },
-    install:     { bg: '#bae6fd', fg: '#075985' },
-    training:    { bg: '#dbeafe', fg: '#1e3a8a' },
-    'diag-call': { bg: '#c7d2fe', fg: '#3730a3' },
-    travel:      { bg: '#e5e7eb', fg: '#374151' },
+    wo:          { bg: 'rgba(217, 164, 65, 0.18)', fg: 'var(--warn)' },
+    pm:          { bg: 'rgba(217, 164, 65, 0.34)', fg: 'var(--brew-amber-soft)' },
+    install:     { bg: 'rgba(95, 212, 168, 0.18)', fg: 'var(--signal)' },
+    training:    { bg: 'rgba(232, 236, 239, 0.10)', fg: 'var(--fog)' },
+    'diag-call': { bg: 'rgba(79, 185, 138, 0.18)', fg: 'var(--ok)' },
+    travel:      { bg: 'rgba(122, 131, 140, 0.18)', fg: 'var(--static)' },
   };
+  const AVAIL_KINDS = Object.keys(AVAIL_COLOR) as ReadonlyArray<AvailabilityKind>;
+  const ASSIGN_KINDS = Object.keys(ASSIGN_COLOR) as ReadonlyArray<AssignmentKind>;
 
   function timeRange(startIso: string, endIso: string): string {
     const s = new Date(startIso);
@@ -170,7 +178,7 @@
   }
 </script>
 
-<div class="theme-exec" style="padding:32px">
+<div class="catalog theme-exec">
   <PageHeader
     eyebrow="Work"
     title={`Service schedule — week of ${weekLabel}`}
@@ -200,8 +208,34 @@
     >
       Next week →
     </button>
-    <span style="margin-left:auto; font-size:12px; color:#78716c">
+    <span style="margin-left:auto; font-size:12px; color:var(--static)">
       {from.slice(0, 10)} → {addDays(weekEnd, -1).toISOString().slice(0, 10)}
+    </span>
+  </div>
+
+  <!-- Legend. The colors were only decoded in per-block title=
+       tooltips, which nobody hovers; say what they mean up front. -->
+  <div style="display:flex; flex-wrap:wrap; gap:6px 8px; align-items:center; margin-bottom:14px; font-size:10px">
+    <span class="mono-label">Availability</span>
+    {#each AVAIL_KINDS as k (k)}
+      {@const c = AVAIL_COLOR[k]}
+      <span
+        style={`background:${c.bg}; color:${c.fg}; padding:2px 6px; border-radius:3px; text-transform:uppercase; letter-spacing:0.3px`}
+      >
+        {k}
+      </span>
+    {/each}
+    <span class="mono-label" style="margin-left:12px">Assignments</span>
+    {#each ASSIGN_KINDS as k (k)}
+      {@const c = ASSIGN_COLOR[k]}
+      <span
+        style={`background:${c.bg}; color:${c.fg}; padding:2px 6px; border-radius:3px; border-left:3px solid ${c.fg}`}
+      >
+        {k}
+      </span>
+    {/each}
+    <span style="margin-left:12px; color:var(--static)">
+      solid edge = confirmed · dashed = tentative
     </span>
   </div>
 
@@ -215,14 +249,14 @@
         <thead>
           <tr>
             <th
-              style="min-width:140px; position:sticky; left:0; background:#fafaf9; z-index:1"
+              style="min-width:140px; position:sticky; left:0; background:var(--void); z-index:1"
             >
               Tech
             </th>
             {#each days as d, i (i)}
               <th style="text-align:left; min-width:130px">
-                <div style="font-size:11px; color:#78716c">{DAY_LABELS[i]}</div>
-                <div class="mono" style="font-size:11px; color:#a8a29e">
+                <div style="font-size:11px; color:var(--static)">{DAY_LABELS[i]}</div>
+                <div class="mono" style="font-size:11px; color:var(--static)">
                   {d.toISOString().slice(5, 10)}
                 </div>
               </th>
@@ -234,7 +268,7 @@
             {@const cells = cellsForRow(row)}
             <tr>
               <td
-                style="position:sticky; left:0; background:#fafaf9; z-index:1"
+                style="position:sticky; left:0; background:var(--void); z-index:1"
               >
                 <EntityLink
                   kind="employee"
@@ -244,10 +278,10 @@
               </td>
               {#each cells as blocks, i (i)}
                 <td
-                  style="vertical-align:top; padding:4px; border-left:1px solid #f5f5f4"
+                  style="vertical-align:top; padding:4px; border-left:1px solid var(--hairline)"
                 >
                   {#if blocks.length === 0}
-                    <span style="color:#d6d3d1; font-size:10px">·</span>
+                    <span style="color:var(--static); font-size:10px">·</span>
                   {:else}
                     <div style="display:flex; flex-direction:column; gap:2px">
                       {#each blocks as b, j (`${b.id}-${j}`)}

@@ -56,7 +56,13 @@ export type NavItem = Readonly<{
 
 export type NavGroup = Readonly<{ label: string; items: ReadonlyArray<NavItem> }>;
 
-export const ROUTE_CATALOG: Readonly<Record<RouteName, NavItem>> = {
+/// Catalog keys: every permission-keyed RouteName, plus the surfaces
+/// that predate a RouteName of their own. Those entries carry no
+/// permKey, so `visible()` never policy-gates them — which matches
+/// their routes, already reachable ungated by URL.
+export type CatalogKey = RouteName | 'hr' | 'watchlist';
+
+export const ROUTE_CATALOG: Readonly<Record<CatalogKey, NavItem>> = {
   jobs:      { id: 'jobs',      label: 'All jobs',         path: '/ux/jobs',      permKey: 'jobs',      app: 'home' },
   sales:     { id: 'sales',     label: 'Sales pipeline',   path: '/ux/sales',     permKey: 'sales',     app: 'sales' },
   service:   { id: 'service',   label: 'Service queue',    path: '/ux/service',   permKey: 'service',   module: 'support', app: 'service' },
@@ -125,6 +131,14 @@ export const ROUTE_CATALOG: Readonly<Record<RouteName, NavItem>> = {
   // every role via canSeeRoute() short-circuit. Editing lives at
   // /system/workflows, reached FROM Workflows.
   workflows:                 { id: 'workflows',               label: 'Workflows',           path: '/it/workflows',    permKey: 'workflows',               app: 'it' },
+
+  // Routed surfaces that had no sidebar row at all — reachable only by
+  // typing the URL. permKey-less until a RouteName exists for them
+  // (permissions.ts lives in web-kit; a sibling car owns that file).
+  // Appended last so DEPARTMENT_APPS' first-surface landing pick is
+  // unchanged for people and sales.
+  hr:        { id: 'hr',        label: 'HR',              path: '/ux/hr',        app: 'people' },
+  watchlist: { id: 'watchlist', label: 'Churn watchlist', path: '/ux/watchlist', app: 'sales' },
 };
 
 /// The apps this host offers: Home, Simulator, and one per department
