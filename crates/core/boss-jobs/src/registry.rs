@@ -2777,7 +2777,6 @@ impl WorkflowRegistry for InMemoryWorkflows {
         self.record(crate::events::workflow_registry_event(
             crate::events::WORKFLOW_DRAFT_SAVED,
             actor,
-            now,
             &spec,
         ));
         Ok(spec)
@@ -2787,7 +2786,7 @@ impl WorkflowRegistry for InMemoryWorkflows {
         &self,
         kind: &str,
         actor: &boss_core::actor::ActorId,
-        now: DateTime<Utc>,
+        _now: DateTime<Utc>,
     ) -> Result<WorkflowSpec, WorkflowError> {
         let mut rows = self.rows.lock().unwrap();
 
@@ -2820,7 +2819,6 @@ impl WorkflowRegistry for InMemoryWorkflows {
         self.record(crate::events::workflow_registry_event(
             crate::events::WORKFLOW_PUBLISHED,
             actor,
-            now,
             &promoted,
         ));
         Ok(promoted)
@@ -2830,7 +2828,7 @@ impl WorkflowRegistry for InMemoryWorkflows {
         &self,
         kind: &str,
         actor: &boss_core::actor::ActorId,
-        now: DateTime<Utc>,
+        _now: DateTime<Utc>,
     ) -> Result<(), WorkflowError> {
         let mut rows = self.rows.lock().unwrap();
         let any_active = rows
@@ -2852,7 +2850,6 @@ impl WorkflowRegistry for InMemoryWorkflows {
             self.record(crate::events::workflow_registry_event(
                 crate::events::WORKFLOW_RETIRED,
                 actor,
-                now,
                 &spec,
             ));
         }
@@ -2897,7 +2894,6 @@ impl WorkflowRegistry for InMemoryWorkflows {
         self.record(crate::events::workflow_registry_event(
             crate::events::WORKFLOW_PUBLISHED,
             actor,
-            now,
             &spec,
         ));
         Ok(spec)
@@ -2907,7 +2903,7 @@ impl WorkflowRegistry for InMemoryWorkflows {
         &self,
         defaults: &[WorkflowSpec],
         actor: &boss_core::actor::ActorId,
-        now: DateTime<Utc>,
+        _now: DateTime<Utc>,
     ) -> Result<KindReconcileStats, WorkflowError> {
         let mut stats = KindReconcileStats::default();
         // Inserted/republished rows record `jobs.kind.published`;
@@ -2954,7 +2950,6 @@ impl WorkflowRegistry for InMemoryWorkflows {
                     events.push(crate::events::workflow_registry_event(
                         crate::events::WORKFLOW_PUBLISHED,
                         actor,
-                        now,
                         &spec,
                     ));
                     stats.inserted += 1;
@@ -2995,7 +2990,6 @@ impl WorkflowRegistry for InMemoryWorkflows {
                             events.push(crate::events::workflow_registry_event(
                                 crate::events::WORKFLOW_PUBLISHED,
                                 actor,
-                                now,
                                 &published,
                             ));
                             stats.republished += 1;
@@ -3265,7 +3259,6 @@ mod pg {
             let event = crate::events::workflow_registry_event(
                 crate::events::WORKFLOW_DRAFT_SAVED,
                 actor,
-                now,
                 &spec,
             );
             boss_events::outbox::record_event_in_tx(&mut tx, &event)
@@ -3282,7 +3275,7 @@ mod pg {
             &self,
             kind: &str,
             actor: &boss_core::actor::ActorId,
-            now: DateTime<Utc>,
+            _now: DateTime<Utc>,
         ) -> Result<WorkflowSpec, WorkflowError> {
             let mut tx = self
                 .pool
@@ -3343,7 +3336,6 @@ mod pg {
             let event = crate::events::workflow_registry_event(
                 crate::events::WORKFLOW_PUBLISHED,
                 actor,
-                now,
                 &promoted,
             );
             boss_events::outbox::record_event_in_tx(&mut tx, &event)
@@ -3361,7 +3353,7 @@ mod pg {
             &self,
             kind: &str,
             actor: &boss_core::actor::ActorId,
-            now: DateTime<Utc>,
+            _now: DateTime<Utc>,
         ) -> Result<(), WorkflowError> {
             let mut tx = self
                 .pool
@@ -3404,7 +3396,6 @@ mod pg {
             let event = crate::events::workflow_registry_event(
                 crate::events::WORKFLOW_RETIRED,
                 actor,
-                now,
                 &spec,
             );
             boss_events::outbox::record_event_in_tx(&mut tx, &event)
@@ -3504,7 +3495,6 @@ mod pg {
             let event = crate::events::workflow_registry_event(
                 crate::events::WORKFLOW_PUBLISHED,
                 actor,
-                now,
                 &spec,
             );
             boss_events::outbox::record_event_in_tx(&mut tx, &event)
@@ -3634,7 +3624,6 @@ mod pg {
                         let event = crate::events::workflow_registry_event(
                             crate::events::WORKFLOW_PUBLISHED,
                             actor,
-                            now,
                             &inserted,
                         );
                         boss_events::outbox::record_event_in_tx(&mut tx, &event)
@@ -3749,7 +3738,6 @@ mod pg {
                                 let event = crate::events::workflow_registry_event(
                                     crate::events::WORKFLOW_PUBLISHED,
                                     actor,
-                                    now,
                                     &published,
                                 );
                                 boss_events::outbox::record_event_in_tx(&mut tx, &event)
