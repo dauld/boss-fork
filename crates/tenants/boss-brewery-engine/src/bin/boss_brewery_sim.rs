@@ -975,9 +975,9 @@ async fn main() -> Result<()> {
             // writes) + cadence. Cheap post-tick snapshot copy.
             global_tick += 1;
             {
-                let wf = workforce
+                let (wf, coverage) = workforce
                     .lock()
-                    .map(|w| w.stats.clone())
+                    .map(|w| (w.stats.clone(), w.actor_coverage()))
                     .unwrap_or_default();
                 let api = output.lock().map(|o| o.stats.clone()).unwrap_or_default();
                 let actors = boss_sim::api_activity::snapshot(&api_activity);
@@ -988,6 +988,7 @@ async fn main() -> Result<()> {
                         &wf,
                         &api,
                         actors,
+                        coverage,
                     );
                 }
             }
