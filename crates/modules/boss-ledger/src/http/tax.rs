@@ -338,12 +338,7 @@ pub(super) async fn create_tax_filing(
         None => body.amount_cents,
     };
 
-    let stamp = super::event_stamp(
-        &state,
-        &user,
-        boss_clock_client::now_from(&state.clock).await,
-    )
-    .await;
+    let stamp = super::event_stamp(&state, &user).await;
 
     // The row and its creation event commit together. `tax_filings` is
     // a projection of `ledger.tax.filing.created` (+ `ledger.tax.remitted`
@@ -528,8 +523,6 @@ pub(super) async fn create_tax_accrual(
         return (StatusCode::BAD_REQUEST, "amount_cents must be positive").into_response();
     }
 
-    let now = boss_clock_client::now_from(&state.clock).await;
-
     // `accrual_id` is the idempotency key — it doubles as the source_id
     // on the financial_facts `(kind, source_table, source_id)` index AND
     // the `source_id_path` the `ledger.tax.accrual.recorded` projection
@@ -543,7 +536,7 @@ pub(super) async fn create_tax_accrual(
         "jurisdiction": body.jurisdiction,
     });
 
-    let stamp = super::event_stamp(&state, &user, now).await;
+    let stamp = super::event_stamp(&state, &user).await;
     let mut tx = match state.pool.begin().await {
         Ok(t) => t,
         Err(e) => return storage_err(e),
@@ -731,8 +724,7 @@ pub(super) async fn remit_tax_filing(
     }
 
     {
-        let now = boss_clock_client::now_from(&state.clock).await;
-        let stamp = super::event_stamp(&state, &user, now).await;
+        let stamp = super::event_stamp(&state, &user).await;
         if let Err(e) = crate::events::record_ledger_event_in_tx(
             &mut tx,
             &stamp,
