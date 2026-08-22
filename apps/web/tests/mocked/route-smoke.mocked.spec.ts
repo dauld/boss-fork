@@ -175,6 +175,11 @@ test.describe('the crawl covers every registered surface', () => {
     ['/ux/finance', 'statements .reduce needs object-shaped fixtures'],
     ['/ux/warehouse', 'summary.below_reorder_count needs a faithful fixture'],
     ['/ux/exec', '.find/.length over object-shaped summaries'],
+    // Verified 2026-08-22 when the watchlist gained its catalog entry:
+    // crawled under the `[]` catch-all, WatchlistPage throws
+    // "Cannot read properties of undefined (reading 'length')" —
+    // the group-1 prediction in the comment above, now measured.
+    ['/ux/watchlist', '.length over an object-shaped scores response needs a faithful fixture'],
     // '/system/os-map' deferral dropped: the page retired with the
     // pre-network framing and its catalog entry is gone.
   ]);

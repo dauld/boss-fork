@@ -79,7 +79,7 @@
 </script>
 
 {#if loading}
-  <p style="padding:16px; color:#78716c">Loading purchase orders...</p>
+  <p style="padding:16px; color:var(--static)">Loading purchase orders...</p>
 {:else}
   <div style="padding:0 0 32px">
     <Section title={`Pending approval (${draftOrders.length})`}>
@@ -114,7 +114,7 @@
                   <td>{po.placed_on}</td>
                   <td>
                     {#if status === 'approved'}
-                      <span style="color:#16a34a; font-size:12px">Approved</span>
+                      <span style="color:var(--ok); font-size:12px">Approved</span>
                     {:else}
                       <button
                         class="hr-done-btn"

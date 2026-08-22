@@ -78,7 +78,7 @@
   });
 </script>
 
-<div class="page">
+<div class="catalog theme-exec">
   <PageHeader title="Products" subtitle="Finished-product catalog with on-hand inventory across all locations." />
 
   <div class="toolbar">
@@ -97,7 +97,7 @@
       {/if}
     </p>
   {:else}
-    <table class="prod-table">
+    <table class="data-table data-table-striped">
       <thead>
         <tr>
           <th>SKU</th>
@@ -127,54 +127,23 @@
 </div>
 
 <style>
-  .page {
-    padding: 24px;
-    max-width: 1200px;
-  }
+  /* Layout + table come from the house classes (.catalog.theme-exec,
+     .data-table in styles.css) — only the bits they don't cover stay. */
   .toolbar {
     margin-bottom: 16px;
   }
-  .empty {
-    color: #78716c;
-    font-style: italic;
-  }
-  .prod-table {
-    width: 100%;
-    border-collapse: collapse;
-    background: #fafaf9;
-    border: 1px solid #e7e5e4;
-    border-radius: 6px;
-    overflow: hidden;
-  }
-  .prod-table th,
-  .prod-table td {
-    padding: 8px 12px;
-    text-align: left;
-    border-bottom: 1px solid #e7e5e4;
-    font-size: 13px;
-  }
-  .prod-table th {
-    background: #f5f5f4;
-    font-weight: 600;
-    color: #44403c;
-    font-size: 11px;
-    letter-spacing: 0.4px;
-    text-transform: uppercase;
-  }
-  .prod-table tr:last-child td {
-    border-bottom: none;
-  }
+  /* .data-table only right-aligns td.num; the header cells need it too. */
   .num {
     text-align: right;
     font-variant-numeric: tabular-nums;
   }
   .muted {
-    color: #78716c;
+    color: var(--static);
   }
   .retired {
     opacity: 0.5;
   }
-  :global(.prod-table .sku) {
+  :global(.data-table .sku) {
     font-family: ui-monospace, monospace;
     font-size: 12px;
   }

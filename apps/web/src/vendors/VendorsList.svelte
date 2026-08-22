@@ -166,23 +166,23 @@
                 <td class="num">{r.vendor.lead_time_days}d</td>
                 <td class="num">
                   {#if r.openPos > 0}
-                    {r.openPos}<span style="color:#78716c; margin-left:4px">/ {r.totalPos}</span>
+                    {r.openPos}<span style="color:var(--static); margin-left:4px">/ {r.totalPos}</span>
                   {:else}
-                    <span style="color:#a8a29e">0</span>
+                    <span style="color:var(--static)">0</span>
                   {/if}
                 </td>
                 <td class="num">
                   {#if r.unpaidBills > 0}
                     {r.unpaidBills}
                   {:else}
-                    <span style="color:#a8a29e">0</span>
+                    <span style="color:var(--static)">0</span>
                   {/if}
                 </td>
                 <td class="num">
                   {#if r.outstandingCents > 0}
                     {formatMoney({ amount_cents: r.outstandingCents, currency: 'USD' })}
                   {:else}
-                    <span style="color:#a8a29e">—</span>
+                    <span style="color:var(--static)">—</span>
                   {/if}
                 </td>
               </tr>

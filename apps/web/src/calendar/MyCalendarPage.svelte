@@ -209,13 +209,14 @@
   }
   .week-controls button {
     padding: 6px 12px;
-    border: 1px solid #d6d3d1;
-    background: #fff;
+    border: 1px solid var(--hairline);
+    background: var(--ink);
+    color: var(--fog);
     border-radius: 6px;
     cursor: pointer;
   }
   .week-controls button:hover {
-    background: #f5f5f4;
+    background: var(--ink-raised);
   }
   .week-grid {
     display: grid;
@@ -224,26 +225,26 @@
     min-height: 60vh;
   }
   .week-col {
-    border: 1px solid #e7e5e4;
+    border: 1px solid var(--hairline);
     border-radius: 6px;
-    background: #fff;
+    background: var(--ink);
     padding: 8px;
     min-height: 200px;
   }
   .week-col-header {
     font-weight: 600;
-    border-bottom: 1px solid #e7e5e4;
+    border-bottom: 1px solid var(--hairline);
     padding-bottom: 4px;
     margin-bottom: 8px;
-    color: #44403c;
+    color: var(--fog);
   }
   .week-col-empty {
-    color: #a8a29e;
+    color: var(--static);
     font-size: 12px;
   }
   .week-cell {
-    border-left: 3px solid #c47a35;
-    background: #fdf6ec;
+    border-left: 3px solid var(--warn);
+    background: var(--brew-amber-bg);
     padding: 6px 8px;
     margin-bottom: 6px;
     border-radius: 0 4px 4px 0;
@@ -251,43 +252,45 @@
   }
   .week-cell-time {
     font-weight: 600;
-    color: #292524;
+    color: var(--fog);
   }
   .week-cell-ref {
-    color: #78716c;
+    color: var(--static);
     font-size: 11px;
   }
   .week-cell-notes {
-    color: #57534e;
+    color: var(--static);
     margin-top: 2px;
     font-style: italic;
   }
+  /* Reason chips. Was a pastel-on-white ramp; now rgba washes of the
+     house status colors with token foregrounds (styles.css idiom). */
   :global(.chip-reason-job-step) {
-    background: #d2f4ea;
-    color: #115e59;
+    background: rgba(79, 185, 138, 0.15);
+    color: var(--ok);
   }
   :global(.chip-reason-pto) {
-    background: #fde2e1;
-    color: #9b1c1c;
+    background: rgba(226, 104, 92, 0.15);
+    color: var(--err);
   }
   :global(.chip-reason-meeting) {
-    background: #ddebff;
-    color: #1e3a8a;
+    background: rgba(95, 212, 168, 0.15);
+    color: var(--signal);
   }
   :global(.chip-reason-preventive-maintenance-visit) {
-    background: #fef3c7;
-    color: #92400e;
+    background: rgba(217, 164, 65, 0.15);
+    color: var(--warn);
   }
   :global(.chip-reason-training) {
-    background: #ede9fe;
-    color: #5b21b6;
+    background: rgba(232, 236, 239, 0.10);
+    color: var(--fog);
   }
   :global(.chip-reason-travel) {
-    background: #f1f5f9;
-    color: #334155;
+    background: var(--wash);
+    color: var(--static);
   }
   :global(.chip-reason-custom) {
-    background: #f5f5f4;
-    color: #44403c;
+    background: var(--ink-raised);
+    color: var(--fog);
   }
 </style>

@@ -223,10 +223,10 @@
   });
 
   function statusColor(status: ServiceStatus): string {
-    if (status === 'healthy') return '#16a34a';
-    if (status === 'degraded') return '#eab308';
-    if (status === 'unknown') return '#94a3b8';
-    return '#dc2626';
+    if (status === 'healthy') return 'var(--ok)';
+    if (status === 'degraded') return 'var(--warn)';
+    if (status === 'unknown') return 'var(--static)';
+    return 'var(--err)';
   }
   function scoreTone(score: number): 'high' | 'mid' | 'low' {
     if (score >= 50) return 'high';
@@ -367,9 +367,11 @@
 
     <Section title="Quick links">
         <div class="cto-links">
-          <Link to={href('/ux/ops')} className="cto-link">
-            Cybernetics Observability
-          </Link>
+          <!-- "Cybernetics Observability" (/ux/ops) linked here for a
+               surface that doesn't exist — the router has no /ops
+               branch, so it fell through to Home. Removed rather than
+               repointed: every real monitoring sub-page is already
+               linked below. -->
           <Link to={href('/system/monitoring/perf')} className="cto-link">
             Gateway Latency
           </Link>
@@ -402,19 +404,19 @@
 <style>
   .cto-svc-footnote {
     font-size: 11px;
-    color: #78716c;
+    color: var(--static);
     margin-top: 4px;
     font-style: italic;
   }
   .cto-services-legend {
     font-size: 12px;
-    color: #57534e;
+    color: var(--static);
     margin-top: 12px;
     line-height: 1.5;
   }
   .cto-services-legend code {
     font-size: 11px;
-    background: #f5f5f4;
+    background: var(--ink-raised);
     padding: 1px 4px;
     border-radius: 3px;
   }

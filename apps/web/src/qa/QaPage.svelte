@@ -194,7 +194,7 @@
             <dd><strong>{totalActive > 0 ? (totalCerts / totalActive).toFixed(1) : '0'}</strong></dd>
             <dt>Expiring ≤ 30 days</dt>
             <dd>
-              <strong style={expiring30.length > 0 ? 'color:#b45309' : ''}>{expiring30.length}</strong>
+              <strong style={expiring30.length > 0 ? 'color:var(--warn)' : ''}>{expiring30.length}</strong>
             </dd>
             <dt>Expiring ≤ 60 days</dt><dd><strong>{expiring60.length}</strong></dd>
             <dt>Expiring ≤ 90 days</dt><dd><strong>{expiring90.length}</strong></dd>
@@ -334,7 +334,7 @@
                 <td>{row.cert.expires_on}</td>
                 <td class="num">
                   {#if d <= 30}
-                    <strong style="color:#b45309">{d}d</strong>
+                    <strong style="color:var(--warn)">{d}d</strong>
                   {:else}
                     {d}d
                   {/if}
@@ -388,12 +388,3 @@
     </section>
   {/if}
 </div>
-
-<style>
-  .section-title {
-    font-size: 0.95rem;
-    font-weight: 600;
-    margin: 0 0 8px;
-    color: #444;
-  }
-</style>

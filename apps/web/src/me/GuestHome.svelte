@@ -48,7 +48,7 @@
   }
 </script>
 
-<div class="theme-exec" style="padding: 0 32px 32px">
+<div class="catalog theme-exec">
   <PageHeader
     eyebrow={greeting}
     title="Welcome to Algedonic Ales"
@@ -160,7 +160,7 @@
     cursor: default;
   }
   .guest-tour-card:not(.is-static):hover {
-    border-color: var(--signal, #29C7B0);
+    border-color: var(--signal, #5fd4a8);
   }
   .guest-tour-h {
     font-size: 15px;
@@ -204,7 +204,7 @@
     flex: 0 0 auto;
   }
   .guest-stop-dot.lit {
-    background: var(--signal, #29C7B0);
+    background: var(--signal, #5fd4a8);
   }
   .guest-stop-label {
     font-size: 12px;
@@ -218,7 +218,7 @@
   }
   .guest-packet {
     border: 1px solid var(--hairline, #2A3138);
-    border-left: 2px solid var(--signal, #29C7B0);
+    border-left: 2px solid var(--signal, #5fd4a8);
     border-radius: 6px;
     padding: 8px 10px;
     display: flex;
