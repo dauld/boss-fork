@@ -28,6 +28,7 @@
   import { hasActivePluginFor } from './pluginHost';
   import { surfaceOf } from './surfaceRegistry.svelte';
   import { session } from '@boss/web-kit/session/session.svelte';
+  import WriteGate from '@boss/web-kit/ui/WriteGate.svelte';
   import FileAttachments from '../content/FileAttachments.svelte';
   import type { StepStatus } from '../jobs/types';
 
@@ -79,6 +80,12 @@
   );
 </script>
 
+<!-- Every step surface — platform, generic fallback, and mounted
+     plugins alike — stands behind the readonly gate. This dispatcher
+     is the shared write path for step work (JobDetailPage,
+     StepFocusPage, DecideModal all mount it), so gating HERE is the
+     one edit instead of one per surface. -->
+<WriteGate>
 {#if pluginAvailable === true}
   <!-- Plugin-backed steps can also take the whole viewport. Reading
        tasks (a design review is a document plus decisions) compete
@@ -141,6 +148,7 @@
 <div class="step-attachments">
   <FileAttachments targetKind="step" targetId={step.id} />
 </div>
+</WriteGate>
 
 <style>
   .step-surface-expand { display: flex; justify-content: flex-end; }
